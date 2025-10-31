@@ -1,0 +1,88 @@
+/* Set base font for the entire page */
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Base chat message styling */
+.chat-message {
+    display: flex;
+    max-width: 80%;
+    margin-bottom: 1rem;
+}
+
+.chat-message p {
+    padding: 0.75rem 1rem;
+    border-radius: 1.25rem;
+    line-height: 1.5;
+    word-wrap: break-word;
+}
+
+/* Bot message specific styling */
+.chat-message.bot {
+    justify-content: flex-start;
+}
+
+.chat-message.bot p {
+    background-color: #ffffff;
+    color: #1f2937; /* text-gray-800 */
+    border: 1px solid #e5e7eb; /* border-gray-200 */
+    border-bottom-left-radius: 0.25rem;
+}
+
+/* User message specific styling */
+.chat-message.user {
+    justify-content: flex-end;
+    margin-left: auto;
+}
+
+.chat-message.user p {
+    background-color: #2563eb; /* bg-blue-600 */
+    color: white;
+    border-bottom-right-radius: 0.25rem;
+}
+
+/* Typing indicator */
+.chat-message.typing p {
+    background-color: #ffffff;
+    color: #6b7280; /* text-gray-500 */
+    border: 1px solid #e5e7eb; /* border-gray-200 */
+    border-bottom-left-radius: 0.25rem;
+    font-style: italic;
+}
+
+/* Simple dot animation for typing */
+.typing::after {
+    content: '.';
+    animation: dots 1s steps(5, end) infinite;
+    display: inline-block;
+}
+
+@keyframes dots {
+    0%, 20% {
+        color: rgba(0,0,0,0);
+        text-shadow:
+            .25em 0 0 rgba(0,0,0,0),
+            .5em 0 0 rgba(0,0,0,0);
+    }
+    40% {
+        color: #6b7280;
+        text-shadow:
+            .25em 0 0 rgba(0,0,0,0),
+            .5em 0 0 rgba(0,0,0,0);
+    }
+    60% {
+        text-shadow:
+            .25em 0 0 #6b7280,
+            .5em 0 0 rgba(0,0,0,0);
+    }
+    80%, 100% {
+        text-shadow:
+            .25em 0 0 #6b7280,
+            .5em 0 0 #6b7280;
+    }
+}
+
+/* Ensure the send button icon is rotated correctly */
+#send-button svg {
+    transform: rotate(90deg);
+}

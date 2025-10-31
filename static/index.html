@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusBot Test Page</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>CampusBot Test Client</h2>
+            <p>Test your bot's responses here before deploying to WhatsApp.</p>
+        </div>
+        
+        <!-- 
+          FIX: This ID is now guaranteed to be "chat-messages" 
+          to match the JavaScript file.
+        -->
+        <div class="chat-window" id="chat-messages"> 
+            <!-- Chat messages will be appended here -->
+        </div>
+        
+        <form class="chat-input-area" id="chat-form">
+            <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
+    </div>
+    
+    <!-- This script path MUST be correct -->
+    <script src="/static/script.js"></script>
+</body>
+</html>
+

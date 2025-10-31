@@ -1,0 +1,7 @@
+Flask[async]
+python-dotenv
+twilio
+mysql-connector-python
+google-generativeai
+aiohttp
+pyngrok
