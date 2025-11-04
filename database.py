@@ -95,7 +95,7 @@ def execute_query(query, params=None):
 
 
 # --- Database Query Functions for each Intent ---
-
+# (get_faculty_info, get_timetable, etc. are all unchanged from your file)
 def get_faculty_info(name, department, info_type):
     """
     Fetches faculty information. Prioritizes faculty table for role searches based on keywords.
@@ -182,8 +182,6 @@ def get_faculty_info(name, department, info_type):
         final_results.extend(faculty_results)
 
         # Search anti-ragging ONLY if a NAME was provided
-        # AND (optional) only if faculty search didn't already find them?
-        # Let's keep it simple: search ragging if name was the input.
         if name:
             print("Searching anti_ragging_squad table by name as fallback/supplement...")
             ragging_query = """
@@ -215,12 +213,10 @@ def get_faculty_info(name, department, info_type):
 
     print(f"get_faculty_info returning {len(processed_results)} unique result(s).")
     return processed_results
-    # --- END REVISION ---
 
 
 def get_timetable(branch, section, study_year, day, faculty_name, course_name):
     """Fetches timetable information. This is a complex join."""
-
     query = """
         SELECT
             t.day_of_week,
@@ -242,7 +238,6 @@ def get_timetable(branch, section, study_year, day, faculty_name, course_name):
         WHERE 1=1
     """
     params = []
-
     if branch:
         query += " AND c.branch LIKE %s"
         params.append(f"%{branch}%")
@@ -261,10 +256,7 @@ def get_timetable(branch, section, study_year, day, faculty_name, course_name):
     if course_name:
         query += " AND co.course_name LIKE %s"
         params.append(f"%{course_name}%")
-
-    # Order by day and time
     query += " ORDER BY FIELD(t.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'), t.start_time"
-
     return execute_query(query, params)
 
 def get_club_info(name):
@@ -302,7 +294,6 @@ def get_fees_info():
 
 def get_anti_ragging_info():
     """Fetches anti-ragging squad info."""
-    # This intent should remain separate unless specifically asked about the squad
     query = "SELECT name, role, department, contact_phone FROM anti_ragging_squad"
     return execute_query(query)
 
@@ -336,35 +327,57 @@ def get_scholarship_info(scholarship_name=None, branch=None, year=None):
     Searches the 'name' column.
     """
     print(f"get_scholarship_info called with name='{scholarship_name}', branch='{branch}', year='{year}'")
-    
-    # --- FIX: Use the 'name' column from your screenshot ---
     sql = "SELECT name, location, mail_id FROM scholarship_details"
     params = []
-
     if scholarship_name:
-        # Search the 'name' column using the 'scholarship_name' entity
         sql += " WHERE name LIKE %s"
         params.append(f"%{scholarship_name}%")
-    
-    # Call 'execute_query' (which we fixed last time)
     return execute_query(sql, params)
 
 
 def get_event_info(title):
     """Fetches event details."""
-    # Corrected DATE_FORMAT specifiers
     query = "SELECT title, DATE_FORMAT(event_date, '%W, %M %e, %Y') as event_date, description FROM events WHERE 1=1"
     params = []
     if title:
         query += " AND title LIKE %s"
         params.append(f"%{title}%")
-    # Order by original date for correctness, formatting is just for display
     query += " ORDER BY event_date DESC"
     return execute_query(query, params)
 
 def get_notice_info():
     """Fetches the 5 most recent notices."""
-    # Corrected DATE_FORMAT specifiers
     query = "SELECT notice_text, DATE_FORMAT(posted_on, '%W, %M %e, %Y') as posted_on FROM notices ORDER BY posted_on DESC LIMIT 5"
     return execute_query(query)
 
+# --- NEW FUNCTION ---
+def get_campus_map_data(location_name=None):
+    """
+    Returns the campus map URL.
+    This function does NOT query the SQL database.
+    """
+    print(f"get_campus_map_data called for location: {location_name}")
+    
+    # Get the URL from the environment variable
+    map_url = os.getenv("COLLEGE_MAP_URL")
+    
+    response_text = ""
+    
+    if not map_url:
+        # If the URL is missing, send an error message
+        logging.error("CRITICAL: get_campus_map_data failed. COLLEGE_MAP_URL is not set in .env file.")
+        response_text = "I'm sorry, I couldn't retrieve the campus map. The feature seems to be misconfigured."
+    else:
+        # If a specific location was asked for, customize the text
+        if location_name:
+            response_text = f"Here is the campus map. You can use it to find the {location_name}."
+        else:
+            # Generic map request
+            response_text = "Here is the campus map!"
+            
+    # Return the dictionary in the format app.py now expects
+    return {
+        'text': response_text,
+        'media_url': map_url # This will be None if not map_url, which is correct
+    }
+# --- END NEW FUNCTION ---

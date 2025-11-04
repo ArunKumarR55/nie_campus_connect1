@@ -1,14 +1,13 @@
+# --- load_dotenv() MUST be the first line ---
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import json
 import logging
 import asyncio # For async operations
 import datetime # For timedelta conversion in formatting
-from dotenv import load_dotenv
-
-# --- FIX 1: Load .env file at the very top ---
-# This MUST be called before importing other modules that need .env variables
-load_dotenv()
-
+# --- Removed load_dotenv from here ---
 from flask import Flask, request, render_template, jsonify
 from twilio.twiml.messaging_response import MessagingResponse
 
@@ -20,16 +19,13 @@ import gemini_client
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Flask App Initialization ---
-# Tell Flask to look for templates/static files in the 'static' directory
 app = Flask(__name__, template_folder='static', static_folder='static')
 
 # --- Conversation Memory (Simple Dictionary) ---
-# Store context for follow-up questions (e.g., timetable day)
-# Key: user identifier (e.g., phone number), Value: dictionary of remembered entities
 conversation_memory = {}
 
 # --- Helper Functions ---
-
+# (format_timetable_response and format_faculty_response are unchanged)
 def format_timetable_response(results, entities):
     """Formats timetable results into a readable string."""
     if not results:
@@ -116,43 +112,51 @@ def format_faculty_response(results):
 # --- Core Message Processing Logic ---
 
 async def process_message(user_query, user_id):
-    """Processes the user's message, interacts with Gemini and DB."""
+    """
+    Processes the user's message, interacts with Gemini and DB.
+    
+    --- MODIFIED ---
+    This function now *always* returns a dictionary:
+    {'text': 'Your response here', 'media_url': 'URL_or_None'}
+    --- END MODIFIED ---
+    """
     logging.info(f"Processing message from {user_id}: '{user_query}'")
-    bot_response = "I'm sorry, I encountered an issue and couldn't process your request." # Default error
+    
+    # --- MODIFIED: Default response is now a dictionary ---
+    bot_response_dict = {
+        'text': "I'm sorry, I encountered an issue and couldn't process your request.",
+        'media_url': None
+    }
+    bot_response_text = None # Will hold the string response
 
     try:
         # --- Step 1: Get Intent and Entities from Gemini ---
         intent_data = await gemini_client.get_query_intent(user_query)
         if not intent_data:
             logging.error("Failed to get intent from Gemini.")
-            return "Sorry, I couldn't understand your request due to an internal error."
+            bot_response_dict['text'] = "Sorry, I couldn't understand your request due to an internal error."
+            return bot_response_dict # Return the dictionary
 
         intent = intent_data.get('intent', 'unknown')
         entities = intent_data.get('entities', {})
         logging.info(f"Intent: {intent}, Entities: {entities}")
 
-        # --- Step 1.5: Override entities if a clear role keyword is in the user query ---
-        # (This logic from your file is good, no changes needed)
+        # --- Step 1.5: Role Override Logic (Unchanged) ---
         user_query_lower = user_query.lower()
         role_keywords_in_query = []
-        is_explicit_role_query = False # Flag if the query IS the role
+        is_explicit_role_query = False 
         if 'principal' in user_query_lower:
             role_keywords_in_query.append('principal')
             if "principal" in user_query_lower.split(): is_explicit_role_query = True
         if 'dean' in user_query_lower:
              role_keywords_in_query.append('dean')
              if "dean" in user_query_lower.split(): is_explicit_role_query = True
-        # Check for controller/coe variations
         controller_keywords = ['controller', 'coe']
         if any(keyword in user_query_lower for keyword in controller_keywords):
-             role_keywords_in_query.append('controller') # Use canonical 'controller'
-             # Check if the query is primarily about the controller role
+             role_keywords_in_query.append('controller')
              if any(keyword in user_query_lower.split() for keyword in controller_keywords):
                  is_explicit_role_query = True
-
-
         if intent == 'get_faculty_info' and role_keywords_in_query:
-            # (This logic from your file is good, no changes needed)
             role_to_search = role_keywords_in_query[0]
             if is_explicit_role_query and entities.get('faculty_name'):
                 logging.warning(f"Overriding Gemini's faculty_name '{entities.get('faculty_name')}' due to EXPLICIT role keyword '{role_to_search}' in query.")
@@ -160,20 +164,18 @@ async def process_message(user_query, user_id):
             elif entities.get('faculty_name') and entities.get('faculty_name').lower() not in user_query_lower:
                 logging.warning(f"Overriding Gemini's faculty_name '{entities.get('faculty_name')}' due to role keyword '{role_to_search}' in query.")
                 entities.pop('faculty_name', None) 
-
             if 'faculty_name' not in entities: 
                 entities['department'] = role_to_search 
                 entities.pop('info_type', None) 
             elif 'department' not in entities: 
                  entities['department'] = role_to_search
-
             logging.info(f"Role keyword detected. Updated Entities for DB search: {entities}")
         # --- End Override Logic ---
 
 
         # --- Step 2: Handle Conversation Memory (Timetable Example) ---
-        # (This logic from your file is good, no changes needed)
         if intent == 'get_timetable':
+            # ... (memory logic is unchanged) ...
             if user_id in conversation_memory and 'day' in entities and len(entities) == 1:
                 logging.info(f"Using memory for user {user_id}: {conversation_memory[user_id]}")
                 entities.update(conversation_memory[user_id])
@@ -183,20 +185,34 @@ async def process_message(user_query, user_id):
                  memory_to_save = {k: v for k, v in entities.items() if k in ['branch', 'section', 'year']}
                  if memory_to_save: 
                     conversation_memory[user_id] = memory_to_save
-                 bot_response = "Please specify which day you'd like the timetable for (e.g., 'timetable for 1st cse a on monday')."
-                 if bot_response is None or bot_response.strip() == "":
+                 
+                 # --- MODIFIED: Return dictionary ---
+                 bot_response_dict['text'] = "Please specify which day you'd like the timetable for (e.g., 'timetable for 1st cse a on monday')."
+                 if bot_response_dict['text'] is None or bot_response_dict['text'].strip() == "":
                     logging.error("CRITICAL: Generated empty response after asking for day.")
-                    return "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY1)"
-                 return bot_response
+                    bot_response_dict['text'] = "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY1)"
+                 return bot_response_dict # Return the dictionary
             else:
                  conversation_memory.pop(user_id, None)
-             # Clear memory if the intent is not a timetable follow-up
-             
+        else:
+             conversation_memory.pop(user_id, None)
 
 
         # --- Step 3: Fetch Data from Database based on Intent ---
         db_results = []
-        if intent == "get_faculty_info":
+        
+        # --- NEW INTENT: get_campus_map ---
+        if intent == "get_campus_map":
+            location = entities.get('location_name')
+            # This function will return a dictionary {'text': '...', 'media_url': '...'}
+            map_data = database.get_campus_map_data(location)
+            bot_response_dict['text'] = map_data.get('text')
+            bot_response_dict['media_url'] = map_data.get('media_url')
+            # Return early since this intent is fully handled
+            return bot_response_dict
+        # --- END NEW INTENT ---
+
+        elif intent == "get_faculty_info":
              name = entities.get('faculty_name')
              dept = entities.get('department')
              info = entities.get('info_type')
@@ -212,11 +228,14 @@ async def process_message(user_query, user_id):
                  db_results = database.get_timetable(branch, section, year, day, faculty_name, course_name)
              else:
                  logging.warning("Timetable query attempted without a day specified, after memory check.")
-                 bot_response = "It seems I missed which day you wanted the timetable for. Please specify the day."
-                 if bot_response is None or bot_response.strip() == "":
+                 # --- MODIFIED: Return dictionary ---
+                 bot_response_dict['text'] = "It seems I missed which day you wanted the timetable for. Please specify the day."
+                 if bot_response_dict['text'] is None or bot_response_dict['text'].strip() == "":
                     logging.error("CRITICAL: Generated empty response in timetable no-day fallback.")
-                    return "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY2)"
-                 return bot_response
+                    bot_response_dict['text'] = "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY2)"
+                 return bot_response_dict # Return the dictionary
+        
+        # ... (all other existing elif intents are unchanged) ...
         elif intent == "get_club_info":
              db_results = database.get_club_info(entities.get('club_name'))
         elif intent == "get_dress_code":
@@ -237,51 +256,45 @@ async def process_message(user_query, user_id):
              db_results = database.get_event_info(entities.get('event_title'))
         elif intent == "get_notice_info":
              db_results = database.get_notice_info()
-        
-        # --- NEW SCHOLARSHIP INTENT ---
         elif intent == "get_scholarship_info":
              db_results = database.get_scholarship_info(
                  entities.get('scholarship_name'), 
                  entities.get('branch'), 
                  entities.get('year')
              )
-        # --- END NEW INTENT ---
 
-        # --- Step 4: Generate Final Response ---
+        # --- Step 4: Generate Final Response (Now handles text-only) ---
         if intent == "general_chat" or intent == "unknown":
             logging.info("Handling general chat or unknown intent.")
-            # We will fix this path inside gemini_client.py
-            bot_response = await gemini_client.generate_final_response(user_query, db_results)
+            bot_response_text = await gemini_client.generate_final_response(user_query, db_results)
         elif intent == "get_timetable" and db_results:
              logging.info("Formatting timetable response.")
-             bot_response = format_timetable_response(db_results, entities) 
+             bot_response_text = format_timetable_response(db_results, entities) 
         elif intent == "get_faculty_info" and db_results:
              logging.info("Formatting faculty response.")
-             bot_response = format_faculty_response(db_results)
+             bot_response_text = format_faculty_response(db_results)
         elif db_results: # For other intents with results, use Gemini to format
             logging.info(f"Generating final response via Gemini with DB results: {db_results[:1]}...") 
-            bot_response = await gemini_client.generate_final_response(user_query, db_results)
-        # --- NO CHANGE to this part ---
+            bot_response_text = await gemini_client.generate_final_response(user_query, db_results)
         else: # Intent was recognized, but DB returned no results
             logging.info("Intent recognized, but no DB results found. Generating suggestion response.")
-            # This function will be replaced in gemini_client.py to include the link
-            bot_response = await gemini_client.generate_suggestion_response(user_query)
+            bot_response_text = await gemini_client.generate_suggestion_response(user_query)
             
-
         # --- Paranoid Check: Ensure response is not empty ---
-        if bot_response is None or bot_response.strip() == "":
+        if bot_response_text is None or bot_response_text.strip() == "":
             logging.error(f"CRITICAL: Final response generated was empty for intent '{intent}' and query '{user_query}'. DB results count: {len(db_results if db_results else [])}")
-            bot_response = "I found some information, but had trouble formulating a response. Please try rephrasing your question."
+            bot_response_text = "I found some information, but had trouble formulating a response. Please try rephrasing your question."
 
+        # --- MODIFIED: Assign text to the dictionary ---
+        bot_response_dict['text'] = bot_response_text
 
     except Exception as e:
         logging.exception(f"An error occurred in process_message: {e}") 
-        bot_response = f"Oops! Something went wrong while processing your request. (Error: {e})"
+        # --- MODIFIED: Assign error text to the dictionary ---
+        bot_response_dict['text'] = f"Oops! Something went wrong while processing your request. (Error: {e})"
 
-
-    logging.info(f"Generated response: '{bot_response[:100]}...'") 
-    logging.info(f"Generated response: '{bot_response[:100]}...'") # Log beginning of response
-    return bot_response
+    logging.info(f"Generated response: '{bot_response_dict['text'][:100]}...', Media: {bot_response_dict['media_url']}") 
+    return bot_response_dict # Return the final dictionary
 
 
 # --- Flask Routes ---
@@ -304,13 +317,17 @@ async def chat():
         return jsonify({"error": "No message provided"}), 400
 
     user_id = "web_user"
-    bot_response = await process_message(user_message, user_id)
+    
+    # --- MODIFIED: Get dictionary response ---
+    bot_response_dict = await process_message(user_message, user_id)
+    bot_response_text = bot_response_dict.get('text') # Get just the text
 
-    if bot_response is None or bot_response.strip() == "":
+    if bot_response_text is None or bot_response_text.strip() == "":
         logging.error(f"CRITICAL: Empty response generated by process_message for web query '{user_message}'")
-        bot_response = "I'm sorry, I couldn't generate a response. Please try again."
+        bot_response_text = "I'm sorry, I couldn't generate a response. Please try again."
 
-    return jsonify({"response": bot_response})
+    # --- MODIFIED: Return only the text part to not break the web UI ---
+    return jsonify({"response": bot_response_text})
 
 
 @app.route('/twilio', methods=['POST'])
@@ -329,11 +346,23 @@ async def twilio_webhook():
         return str(resp)
 
     try:
-        bot_response = await process_message(incoming_msg, from_number)
-        if bot_response is None or bot_response.strip() == "":
+        # --- MODIFIED: Get dictionary response ---
+        bot_response_dict = await process_message(incoming_msg, from_number)
+        bot_response_text = bot_response_dict.get('text')
+        bot_response_media = bot_response_dict.get('media_url')
+
+        if bot_response_text is None or bot_response_text.strip() == "":
              logging.error(f"CRITICAL: Empty response generated by process_message for Twilio query '{incoming_msg}' from {from_number}")
-             bot_response = "I'm sorry, I couldn't generate a response. Please try again."
-        msg.body(bot_response)
+             bot_response_text = "I'm sorry, I couldn't generate a response. Please try again."
+
+        # --- MODIFIED: Always set the body ---
+        msg.body(bot_response_text)
+
+        # --- NEW: Conditionally add media ---
+        if bot_response_media:
+            logging.info(f"Attaching media to response: {bot_response_media}")
+            msg.media(bot_response_media)
+        # --- END NEW ---
 
     except Exception as e:
         logging.exception(f"Error in /twilio webhook: {e}") 
@@ -342,7 +371,7 @@ async def twilio_webhook():
     return str(resp)
 
 # --- Main Execution ---
-
+# (This part is unchanged)
 if __name__ == '__main__':
     logging.info("Starting Flask application...")
     try:
@@ -364,7 +393,7 @@ if __name__ == '__main__':
         print("==================================================")
 
 
-        app.run(port=5000, debug=False) # Turn debug=False for cleaner logs unless actively debugging Flask itself
+        app.run(port=5000, debug=False)
 
     except Exception as startup_error:
         logging.critical(f"CRITICAL STARTUP ERROR: {startup_error}", exc_info=True)
