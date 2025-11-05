@@ -141,8 +141,9 @@ def get_faculty_info(name, department, info_type):
             print(f"Detected EXCLUSIVE role search for '{matched_role_key}' using keywords: {role_keywords_to_search}")
 
     # Query 1: Search faculty table
+    # --- MODIFIED: Added f.image_url ---
     faculty_query = """
-        SELECT f.name, f.email, f.department, f.office_location, 'faculty' as source_table
+        SELECT f.name, f.email, f.department, f.office_location, f.image_url, 'faculty' as source_table
         FROM faculty f
     """
     faculty_params = []
@@ -185,8 +186,9 @@ def get_faculty_info(name, department, info_type):
         # Search anti-ragging ONLY if a NAME was provided
         if name:
             print("Searching anti_ragging_squad table by name as fallback/supplement...")
+            # --- MODIFIED: Added NULL as image_url ---
             ragging_query = """
-                SELECT a.name, NULL as email, a.department, NULL as office_location, a.role, a.contact_phone, 'anti_ragging' as source_table
+                SELECT a.name, NULL as email, a.department, NULL as office_location, NULL as image_url, a.role, a.contact_phone, 'anti_ragging' as source_table
                 FROM anti_ragging_squad a WHERE a.name LIKE %s
             """
             ragging_params = [f"%{name}%"]
@@ -209,6 +211,8 @@ def get_faculty_info(name, department, info_type):
         result.setdefault('office_location', None)
         result.setdefault('role', None) # From anti_ragging
         result.setdefault('contact_phone', None) # From anti_ragging
+        # --- MODIFIED: Added image_url default ---
+        result.setdefault('image_url', None) # Ensure image_url key exists
         result.setdefault('source_table', 'faculty') # Default source
         processed_results.append(result)
 
@@ -410,4 +414,3 @@ def get_placement_stats_data():
         'media_url': pdf_url # This will be None if not pdf_url, which is correct
     }
 # --- END NEW FUNCTION ---
-

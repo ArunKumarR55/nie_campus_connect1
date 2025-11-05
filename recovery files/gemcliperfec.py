@@ -341,4 +341,3 @@ async def generate_suggestion_response(user_query):
         print(f"Error generating suggestion response from Gemini: {e}")
         return f"I'm sorry, I couldn't find information about that. (Error: {e})"
 
-
