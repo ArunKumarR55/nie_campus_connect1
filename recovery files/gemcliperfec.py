@@ -28,6 +28,7 @@ _FALLBACK_SUGGESTION_PROMPT = (
 
 
 MODEL_NAME = "gemini-2.5-flash-preview-09-2025"
+# --- FIX: Added '//' after 'https:' ---
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 
 def configure_gemini():
@@ -138,14 +139,16 @@ async def get_query_intent(user_query):
     - "get_fees_info": User is asking about tuition fees or payments.
     - "get_transport_info": User is asking about college bus routes or transport.
     - "get_dress_code": User is asking about the college dress code.
-    - "get_anti_ragging_info": User is asking about anti-ragging policies or contacts.
+    - "get_anti_ragging_info": User isa asking about anti-ragging policies or contacts.
     - "get_events_info": User is asking about college events or fests.
     - "get_notices": User is asking for recent notices or announcements.
     - "get_scholarship_info": User is asking about scholarships.
     - "get_campus_map": User is asking for the college map, directions, or location of a specific place.
     
-    --- NEW INTENT ---
     - "get_placement_stats": User is asking for statistics, numbers, reports, companies visited, or number of students placed.
+
+    --- NEW INTENT ---
+    - "get_student_portal_info": User is asking about attendance, CIE marks, internal marks, or test marks.
     --- END NEW INTENT ---
     
     - "general_chat": User is making small talk, greeting, or asking a question not related to the database.
@@ -169,6 +172,10 @@ async def get_query_intent(user_query):
     Handle spelling mistakes gracefully.
     "hi" or "hello" or "thanks" or "bye" are "general_chat".
     
+    --- NEW RULE ---
+    You must also ignore all honorifics like 'sir', 'mam', 'madam'. They are not part of the name.
+    --- END NEW RULE ---
+
     (Existing examples are unchanged...)
     
     Example for "can i get timetable for cse a 1st year on monday":
@@ -183,6 +190,31 @@ async def get_query_intent(user_query):
     Example for "who is John Doe":
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "John Doe"}}}}
     
+    --- NEW EXAMPLES TO HANDLE HONORIFICS ---
+    Example for "who is dr anitha r mam":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
+
+    Example for "tell me about dr vanamala mam":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. CK Vanamala"}}}}
+    
+    Example for "details about principal sir":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    
+    Example for "tell me about John Doe madam":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "John Doe"}}}}
+    --- END NEW EXAMPLES ---
+
+    --- NEW EXAMPLES TO HANDLE 'WHERE IS A PERSON' ---
+    Example for "where can i find vanamal":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "vanamal"}}}}
+    
+    Example for "where is dr anitha r's office":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
+    
+    Example for "location of principal's office":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    --- END NEW EXAMPLES ---
+
     Example for "what clubs are there":
     {{"intent": "get_club_info", "entities": {{}}}}
 
@@ -201,7 +233,6 @@ async def get_query_intent(user_query):
     Example for "directions to the admin block":
     {{"intent": "get_campus_map", "entities": {{"location_name": "admin block"}}}}
 
-    --- NEW EXAMPLES ---
     Example for "how many students were placed last year":
     {{"intent": "get_placement_stats", "entities": {{}}}}
     
@@ -213,6 +244,19 @@ async def get_query_intent(user_query):
 
     Example for "who is the placement officer":
     {{"intent": "get_placements_info", "entities": {{}}}}
+
+    --- NEW EXAMPLES FOR STUDENT PORTAL ---
+    Example for "how to check attendance":
+    {{"intent": "get_student_portal_info", "entities": {{}}}}
+    
+    Example for "where can i check my cie marks":
+    {{"intent": "get_student_portal_info", "entities": {{}}}}
+
+    Example for "what is my attendance status":
+    {{"intent": "get_student_portal_info", "entities": {{}}}}
+
+    Example for "internal marks":
+    {{"intent": "get_student_portal_info", "entities": {{}}}}
     --- END NEW EXAMPLES ---
 
     Example for "thanks":
@@ -234,6 +278,7 @@ async def get_query_intent(user_query):
     }
     
     try:
+        # --- FIX: Corrected function call typo ---
         response_text = await _call_gemini_with_retry(payload, "intent")
         if response_text:
             json_text = response_text.strip().replace("```json\n", "").replace("\n```", "")
@@ -307,6 +352,7 @@ async def generate_final_response(user_query, db_results):
     }
     
     try:
+        # --- FIX: Corrected function call typo ---
         response_text = await _call_gemini_with_retry(payload, "response")
         return response_text
     except Exception as e:
@@ -335,6 +381,7 @@ async def generate_suggestion_response(user_query):
     }
     
     try:
+        # --- FIX: Corrected function call typo ---
         response_text = await _call_gemini_with_retry(payload, "response")
         return response_text
     except Exception as e:

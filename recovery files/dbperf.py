@@ -141,7 +141,6 @@ def get_faculty_info(name, department, info_type):
             print(f"Detected EXCLUSIVE role search for '{matched_role_key}' using keywords: {role_keywords_to_search}")
 
     # Query 1: Search faculty table
-    # --- MODIFIED: Added f.image_url ---
     faculty_query = """
         SELECT f.name, f.email, f.department, f.office_location, f.image_url, 'faculty' as source_table
         FROM faculty f
@@ -186,9 +185,8 @@ def get_faculty_info(name, department, info_type):
         # Search anti-ragging ONLY if a NAME was provided
         if name:
             print("Searching anti_ragging_squad table by name as fallback/supplement...")
-            # --- MODIFIED: Added NULL as image_url ---
             ragging_query = """
-                SELECT a.name, NULL as email, a.department, NULL as office_location, NULL as image_url, a.role, a.contact_phone, 'anti_ragging' as source_table
+                SELECT a.name, NULL as email, a.department, NULL as office_location, a.role, a.contact_phone, NULL as image_url, 'anti_ragging' as source_table
                 FROM anti_ragging_squad a WHERE a.name LIKE %s
             """
             ragging_params = [f"%{name}%"]
@@ -211,8 +209,7 @@ def get_faculty_info(name, department, info_type):
         result.setdefault('office_location', None)
         result.setdefault('role', None) # From anti_ragging
         result.setdefault('contact_phone', None) # From anti_ragging
-        # --- MODIFIED: Added image_url default ---
-        result.setdefault('image_url', None) # Ensure image_url key exists
+        result.setdefault('image_url', None) # Add default image_url
         result.setdefault('source_table', 'faculty') # Default source
         processed_results.append(result)
 
@@ -387,7 +384,7 @@ def get_campus_map_data(location_name=None):
     }
 # --- END NEW FUNCTION ---
 
-# --- NEW FUNCTION ---
+# --- get_placement_stats_data (Unchanged) ---
 def get_placement_stats_data():
     """
     Returns the placement stats PDF URL.
@@ -414,3 +411,35 @@ def get_placement_stats_data():
         'media_url': pdf_url # This will be None if not pdf_url, which is correct
     }
 # --- END NEW FUNCTION ---
+
+# --- NEW FUNCTION FOR STUDENT PORTAL ---
+def get_student_portal_data():
+    """
+    Returns the student portal URL (for attendance/marks).
+    This function does NOT query the SQL database.
+    """
+    print("get_student_portal_data called.")
+    
+    # Get the URL from the environment variable
+    portal_url = os.getenv("ATTENDANCE_URL")
+    
+    response_text = ""
+    
+    if not portal_url:
+        # If the URL is missing, send an error message
+        logging.error("CRITICAL: get_student_portal_data failed. ATTENDANCE_URL is not set in .env file.")
+        response_text = "I'm sorry, I couldn't retrieve the student portal link. The feature seems to be misconfigured."
+    else:
+        # Generic map request
+        response_text = (
+            "You can check your attendance, CIE marks, and internal marks on the official student portal here:\n"
+            f"{portal_url}"
+        )
+            
+    # Return the dictionary in the format app.py now expects
+    return {
+        'text': response_text,
+        'media_url': None # This is a text-only response
+    }
+# --- END NEW FUNCTION ---
+

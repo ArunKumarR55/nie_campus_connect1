@@ -209,13 +209,18 @@ async def process_message(user_query, user_id):
             bot_response_dict['media_url'] = map_data.get('media_url')
             return bot_response_dict
         
-        # --- NEW INTENT: get_placement_stats ---
+        # --- get_placement_stats (Unchanged) ---
         elif intent == "get_placement_stats":
-            # This function will return a dictionary {'text': '...', 'media_url': '...'}
             stats_data = database.get_placement_stats_data()
             bot_response_dict['text'] = stats_data.get('text')
             bot_response_dict['media_url'] = stats_data.get('media_url')
-            # Return early since this intent is fully handled
+            return bot_response_dict
+        
+        # --- NEW INTENT: get_student_portal_info ---
+        elif intent == "get_student_portal_info":
+            portal_data = database.get_student_portal_data()
+            bot_response_dict['text'] = portal_data.get('text')
+            bot_response_dict['media_url'] = portal_data.get('media_url') # This will be None
             return bot_response_dict
         # --- END NEW INTENT ---
 
@@ -270,32 +275,26 @@ async def process_message(user_query, user_id):
                  entities.get('year')
              )
 
-        # --- Step 4: Generate Final Response ---
+        # --- Step 4: Generate Final Response (Unchanged) ---
         if intent == "general_chat" or intent == "unknown":
             logging.info("Handling general chat or unknown intent.")
             bot_response_text = await gemini_client.generate_final_response(user_query, db_results)
-
         elif intent == "get_timetable" and db_results:
              logging.info("Formatting timetable response.")
              bot_response_text = format_timetable_response(db_results, entities) 
-
-        # --- MODIFIED: get_faculty_info ---
         elif intent == "get_faculty_info" and db_results:
              logging.info("Formatting faculty response.")
-             # 1. Format the text response (as before)
+             
+             # --- MODIFIED: Check for image_url ---
+             if len(db_results) == 1 and db_results[0].get('image_url'):
+                 logging.info(f"Found image_url for faculty: {db_results[0]['image_url']}")
+                 bot_response_dict['media_url'] = db_results[0]['image_url']
+             # --- END MODIFIED ---
+                 
              bot_response_text = format_faculty_response(db_results)
-             # 2. Check for single result and add media_url
-             if len(db_results) == 1:
-                 faculty = db_results[0]
-                 if faculty.get('image_url'):
-                     bot_response_dict['media_url'] = faculty['image_url']
-                     logging.info(f"get_faculty_info: Attaching media_url: {faculty['image_url']}")
-        # --- END MODIFICATION ---
-
         elif db_results: # For other intents with results, use Gemini to format
             logging.info(f"Generating final response via Gemini with DB results: {db_results[:1]}...") 
             bot_response_text = await gemini_client.generate_final_response(user_query, db_results)
-        
         else: # Intent was recognized, but DB returned no results
             logging.info("Intent recognized, but no DB results found. Generating suggestion response.")
             bot_response_text = await gemini_client.generate_suggestion_response(user_query)
@@ -418,3 +417,4 @@ if __name__ == '__main__':
         logging.critical(f"CRITICAL STARTUP ERROR: {startup_error}", exc_info=True)
     finally:
         logging.info("Flask application stopped.")
+

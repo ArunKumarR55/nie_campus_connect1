@@ -25,7 +25,6 @@ app = Flask(__name__, template_folder='static', static_folder='static')
 conversation_memory = {}
 
 # --- Helper Functions ---
-# (format_timetable_response and format_faculty_response are unchanged)
 def format_timetable_response(results, entities):
     """Formats timetable results into a readable string."""
     if not results:
@@ -36,13 +35,35 @@ def format_timetable_response(results, entities):
     section = entities.get('section', 'Unknown Section')
     year = entities.get('year', 'Unknown Year')
     day = entities.get('day', 'Unknown Day') # Get the specific day
-    # --- End change ---
+    
+    # --- NEW: Get course name/code for title ---
+    course_name = entities.get('course_name')
+    course_code = entities.get('course_code')
+    
+    title_parts = [part for part in [f"{year} year", branch, section] if part not in ['Unknown Branch', 'Unknown Section', 'Unknown Year']]
+    
+    if course_name:
+        title_parts.append(f"for {course_name}")
+    elif course_code:
+        title_parts.append(f"for {course_code}")
 
-    response_lines = [f"Here is the schedule for {year} year {branch} {section} section on {day.capitalize()}:"]
-    response_lines.append(f"\n--- {day.upper()} ---")
-
+    if day and day != 'Unknown Day':
+        response_lines = [f"Here is the schedule {' '.join(title_parts)} on {day.capitalize()}:"]
+        response_lines.append(f"\n--- {day.upper()} ---")
+    else:
+        # Handle case where day wasn't provided but we have results (e.g., full week schedule)
+        response_lines = [f"Here is the schedule {' '.join(title_parts)}:"]
+        
+    current_day = ""
     current_time = None
     for row in results:
+        # --- NEW: Handle full week schedule printing ---
+        if row['day_of_week'] != current_day and not day:
+             current_day = row['day_of_week']
+             response_lines.append(f"\n--- {current_day.upper()} ---")
+             current_time = None # Reset time for new day
+        # --- END NEW ---
+
         # Format time - handles time objects now
         start_time_str = row['start_time'].strftime("%I:%M %p") if isinstance(row['start_time'], datetime.time) else "N/A"
         end_time_str = row['end_time'].strftime("%I:%M %p") if isinstance(row['end_time'], datetime.time) else "N/A"
@@ -71,7 +92,7 @@ def format_timetable_response(results, entities):
     return "\n".join(response_lines).strip()
 
 def format_faculty_response(results):
-    """Formats faculty results into a readable string."""
+    """Formats faculty results (full details) into a readable string."""
     if not results:
         return "I couldn't find information for that faculty member."
 
@@ -83,8 +104,11 @@ def format_faculty_response(results):
             response_lines.append(f"\n**Department/Role:** {faculty['department']}")
         if faculty.get('email'):
             response_lines.append(f"**Email:** {faculty['email']}")
+        
+        # --- MODIFIED: This logic is correct, it already hides NULL locations ---
         if faculty.get('office_location'):
             response_lines.append(f"**Office Location:** {faculty['office_location']}")
+            
         # Include info specific to anti_ragging if source is that table
         if faculty.get('source_table') == 'anti_ragging':
             if faculty.get('role'):
@@ -107,6 +131,173 @@ def format_faculty_response(results):
 
 
     return "\n".join(response_lines)
+
+# --- NEW FORMATTER FUNCTION ---
+def format_faculty_location(results):
+    """Formats faculty location results into a readable string."""
+    if not results:
+        return "I couldn't find a faculty member by that name."
+
+    if len(results) == 1:
+        faculty = results[0]
+        name = faculty.get('name', 'N/A')
+        location = faculty.get('office_location')
+        
+        if location:
+            return f"The office location for **{name}** is **{location}**."
+        else:
+            # This is the case where the guide's request is met
+            return f"I found **{name}**, but I'm sorry, their office location is not in my records right now."
+            
+    else:
+        # This means multiple matches were found
+        response_lines = [f"I found {len(results)} potential matches:"]
+        for i, faculty in enumerate(results):
+            response_lines.append(f"\n{i+1}. **{faculty.get('name', 'N/A')}**")
+        response_lines.append("\nWhose office location would you like to know?")
+        return "\n".join(response_lines)
+# --- END NEW FORMATTER ---
+
+# --- NEW FORMATTER FUNCTION ---
+def format_course_instructors(results):
+    """Formats the list of course instructors into a readable string."""
+    if not results:
+        return "I couldn't find any instructors for that course, or the course code/name might be incorrect."
+
+    # Use the first result to get the course name/code
+    first_result = results[0]
+    course_name = first_result.get('course_name')
+    course_code = first_result.get('course_code')
+    
+    response_lines = [f"Here are the instructors for **{course_name} ({course_code})**:\n"]
+    
+    for row in results:
+        name = row.get('faculty_name', 'N/A')
+        branch = row.get('branch', 'N/A')
+        section = row.get('section', 'N/A')
+        response_lines.append(f"• **{name}** teaches {branch} - {section} section.")
+    
+    return "\n".join(response_lines)
+# --- END NEW FORMATTER ---
+
+# --- UPDATED PLACEMENT FORMATTER ---
+def format_placement_summary(results, entities):
+    """
+    Formats the high-level placement stats.
+    If a specific 'stat_type' entity is passed, it returns only that stat.
+    Otherwise, it returns the full summary.
+    """
+    if not results:
+        return "I'm sorry, I couldn't retrieve the overall placement summary."
+        
+    stats = results[0] # Should only be one row
+    stat_type = entities.get("stat_type")
+    
+    # --- NEW: Specific Stat Logic ---
+    if stat_type:
+        if stat_type == "highest_ctc" and stats.get('highest_ctc'):
+            return f"The **Highest Salary** was **{stats['highest_ctc']} LPA**."
+        elif stat_type == "average_ctc" and stats.get('average_ctc'):
+            return f"The **Average Salary** was **{stats['average_ctc']} LPA**."
+        elif stat_type == "median_ctc" and stats.get('median_ctc'):
+            return f"The **Median Salary** was **{stats['median_ctc']} LPA**."
+        elif stat_type == "lowest_ctc" and stats.get('lowest_ctc'):
+            return f"The **Lowest Salary (Mass)** was **{stats['lowest_ctc']} LPA**."
+        elif stat_type == "total_selects" and stats.get('total_selects'):
+            return f"There were **{stats['total_selects']} Total Selections**."
+        elif stat_type == "total_companies" and stats.get('total_companies'):
+            return f"A total of **{stats['total_companies']} Companies** visited for placements."
+        else:
+            # Fallback in case the stat_type is weird, just return all
+            pass 
+    # --- END NEW: Specific Stat Logic ---
+
+    # --- Default: Full Summary ---
+    response_lines = ["Here are the key placement statistics:\n"]
+    if stats.get('highest_ctc'):
+        response_lines.append(f"• **Highest Salary:** {stats['highest_ctc']} LPA")
+    if stats.get('average_ctc'):
+        response_lines.append(f"• **Average Salary:** {stats['average_ctc']} LPA")
+    if stats.get('median_ctc'):
+        response_lines.append(f"• **Median Salary:** {stats['median_ctc']} LPA")
+    if stats.get('lowest_ctc'):
+        response_lines.append(f"• **Lowest Salary (Mass):** {stats['lowest_ctc']} LPA")
+    if stats.get('total_selects'):
+        response_lines.append(f"• **Total Selections:** {stats['total_selects']}")
+    if stats.get('total_companies'):
+        response_lines.append(f"• **Total Companies Visited:** {stats['total_companies']}")
+        
+    return "\n".join(response_lines)
+
+def format_company_stats(results, company_name):
+    """Formats stats for a specific company."""
+    if not results:
+        return f"I'm sorry, I couldn't find any placement data for a company matching '{company_name}'."
+    
+    response_lines = []
+    if len(results) == 1:
+        company = results[0]
+        name = company.get('company_name')
+        selects = company.get('num_selects')
+        ctc = company.get('ctc')
+        ctype = company.get('ctc_type')
+        
+        response_lines.append(f"Here are the stats for **{name}**:")
+        if ctc:
+            response_lines.append(f"• **Offered CTC:** {ctc} LPA ({ctype})")
+        if selects is not None:
+            response_lines.append(f"• **Number of Selections:** {selects}")
+    else:
+        response_lines.append(f"I found {len(results)} matches for '{company_name}':\n")
+        for company in results:
+            name = company.get('company_name')
+            selects = company.get('num_selects')
+            ctc = company.get('ctc')
+            response_lines.append(f"• **{name}**: {selects} selections at {ctc} LPA")
+            
+    return "\n".join(response_lines)
+
+# --- NEW: Formatter for count by type ---
+def format_placement_count_by_type(results, ctc_type):
+    """Formats the count of companies by ctc_type."""
+    if not results:
+        return f"I'm sorry, I couldn't find any companies matching the type '{ctc_type}'."
+    
+    # The query groups by ctc_type, so we need to sum them up
+    # e.g., "Dream" and "Open Dream" if user asks for "Dream"
+    total_count = sum(row.get('company_count', 0) for row in results)
+    
+    if total_count == 0:
+         return f"I couldn't find any companies matching the type '{ctc_type}'."
+         
+    # Make the ctc_type more readable
+    type_name = ctc_type.capitalize()
+    if total_count == 1:
+        return f"I found **1** company that offered a '{type_name}' package."
+    else:
+        return f"I found a total of **{total_count}** companies that offered '{type_name}' packages."
+# --- END NEW FORMATTER ---
+
+# --- NEW: Formatter for count by ctc ---
+def format_placement_count_by_ctc(results, operator, amount):
+    """Formats the count of students/companies by CTC threshold."""
+    if not results or results[0] is None:
+        return f"I'm sorry, I couldn't calculate the placement data for that CTC range."
+        
+    stats = results[0]
+    total_students = stats.get('total_students') or 0
+    total_companies = stats.get('total_companies') or 0
+    
+    op_text = "more than" if operator == 'gt' else "less than"
+    
+    if total_companies == 0:
+        return f"I couldn't find any companies that offered packages {op_text} {amount} LPA."
+        
+    student_text = "student" if total_students == 1 else "students"
+    company_text = "company" if total_companies == 1 else "companies"
+    
+    return f"I found that **{total_students} {student_text}** were placed by **{total_companies} {company_text}** with a CTC *{op_text}* **{amount} LPA**."
+# --- END NEW FORMATTER ---
 
 
 # --- Core Message Processing Logic ---
@@ -156,7 +347,9 @@ async def process_message(user_query, user_id):
              role_keywords_in_query.append('controller')
              if any(keyword in user_query_lower.split() for keyword in controller_keywords):
                  is_explicit_role_query = True
-        if intent == 'get_faculty_info' and role_keywords_in_query:
+        
+        # --- MODIFIED: Apply role logic to both info and location intents ---
+        if (intent == 'get_faculty_info' or intent == 'get_faculty_location') and role_keywords_in_query:
             role_to_search = role_keywords_in_query[0]
             if is_explicit_role_query and entities.get('faculty_name'):
                 logging.warning(f"Overriding Gemini's faculty_name '{entities.get('faculty_name')}' due to EXPLICIT role keyword '{role_to_search}' in query.")
@@ -182,7 +375,8 @@ async def process_message(user_query, user_id):
                 conversation_memory.pop(user_id, None) 
             elif 'day' not in entities:
                  logging.info(f"Asking for day, saving memory for user {user_id}: {entities}")
-                 memory_to_save = {k: v for k, v in entities.items() if k in ['branch', 'section', 'year']}
+                 # --- NEW: Save course_code/name in memory ---
+                 memory_to_save = {k: v for k, v in entities.items() if k in ['branch', 'section', 'year', 'course_name', 'course_code']}
                  if memory_to_save: 
                     conversation_memory[user_id] = memory_to_save
                  
@@ -209,26 +403,66 @@ async def process_message(user_query, user_id):
             bot_response_dict['media_url'] = map_data.get('media_url')
             return bot_response_dict
         
-        # --- get_placement_stats (Unchanged) ---
+        # --- get_placement_stats (This is now the PDF SENDER) ---
         elif intent == "get_placement_stats":
             stats_data = database.get_placement_stats_data()
             bot_response_dict['text'] = stats_data.get('text')
             bot_response_dict['media_url'] = stats_data.get('media_url')
             return bot_response_dict
         
-        # --- NEW INTENT: get_student_portal_info ---
+        # --- NEW: get_placement_summary ---
+        elif intent == "get_placement_summary":
+            db_results = database.get_placement_summary_data()
+            # This intent never sends media
+            
+        # --- NEW: get_company_stats ---
+        elif intent == "get_company_stats":
+            company_name = entities.get('company_name')
+            db_results = database.get_company_stats_data(company_name)
+            # This intent never sends media
+        
+        # --- NEW: get_placement_count_by_type ---
+        elif intent == "get_placement_count_by_type":
+            ctc_type = entities.get('ctc_type')
+            db_results = database.get_placement_count_by_type_data(ctc_type)
+            # This intent never sends media
+            
+        # --- NEW: get_placement_count_by_ctc ---
+        elif intent == "get_placement_count_by_ctc":
+            operator = entities.get('ctc_operator')
+            amount = entities.get('ctc_amount')
+            db_results = database.get_placement_count_by_ctc_data(operator, amount)
+            # This intent never sends media
+            
+        # --- get_student_portal_info (Unchanged) ---
         elif intent == "get_student_portal_info":
             portal_data = database.get_student_portal_data()
             bot_response_dict['text'] = portal_data.get('text')
             bot_response_dict['media_url'] = portal_data.get('media_url') # This will be None
             return bot_response_dict
-        # --- END NEW INTENT ---
+        
+        # --- get_faculty_location (Unchanged from prev) ---
+        elif intent == "get_faculty_location":
+            name = entities.get('faculty_name')
+            dept = entities.get('department') # For role search (e.g., principal)
+            search_term = name or dept
+            db_results = database.get_faculty_location(search_term)
+            # --- This intent NEVER sends an image ---
+            
+        # --- get_course_instructors (Unchanged from prev) ---
+        elif intent == "get_course_instructors":
+            course_name = entities.get('course_name')
+            course_code = entities.get('course_code')
+            db_results = database.get_course_instructors(course_name, course_code)
+            # --- This intent NEVER sends an image ---
 
         elif intent == "get_faculty_info":
              name = entities.get('faculty_name')
              dept = entities.get('department')
              info = entities.get('info_type')
              db_results = database.get_faculty_info(name, dept, info)
+             # --- This intent WILL send an image, see Step 4 ---
+             
         elif intent == "get_timetable":
              branch = entities.get('branch')
              section = entities.get('section')
@@ -236,12 +470,15 @@ async def process_message(user_query, user_id):
              day = entities.get('day')
              faculty_name = entities.get('faculty_name')
              course_name = entities.get('course_name')
-             if day:
-                 db_results = database.get_timetable(branch, section, year, day, faculty_name, course_name)
+             course_code = entities.get('course_code') # --- NEW ---
+             
+             # --- MODIFIED: Check for any valid entity ---
+             if day or branch or section or year or faculty_name or course_name or course_code:
+                 db_results = database.get_timetable(branch, section, year, day, faculty_name, course_name, course_code)
              else:
-                 logging.warning("Timetable query attempted without a day specified, after memory check.")
+                 logging.warning("Timetable query attempted without any entities.")
                  # --- MODIFIED: Return dictionary ---
-                 bot_response_dict['text'] = "It seems I missed which day you wanted the timetable for. Please specify the day."
+                 bot_response_dict['text'] = "It seems I missed what you wanted the timetable for. Please specify a branch, year, faculty, or course."
                  if bot_response_dict['text'] is None or bot_response_dict['text'].strip() == "":
                     logging.error("CRITICAL: Generated empty response in timetable no-day fallback.")
                     bot_response_dict['text'] = "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY2)"
@@ -275,29 +512,87 @@ async def process_message(user_query, user_id):
                  entities.get('year')
              )
 
-        # --- Step 4: Generate Final Response (Unchanged) ---
+        # --- Step 4: Generate Final Response ---
         if intent == "general_chat" or intent == "unknown":
             logging.info("Handling general chat or unknown intent.")
             bot_response_text = await gemini_client.generate_final_response(user_query, db_results)
         elif intent == "get_timetable" and db_results:
              logging.info("Formatting timetable response.")
              bot_response_text = format_timetable_response(db_results, entities) 
-        elif intent == "get_faculty_info" and db_results:
-             logging.info("Formatting faculty response.")
              
-             # --- MODIFIED: Check for image_url ---
+        # --- NEW: Handle faculty location (no image) ---
+        elif intent == "get_faculty_location" and db_results:
+            logging.info("Formatting faculty LOCATION response.")
+            bot_response_text = format_faculty_location(db_results)
+            # media_url remains None
+            
+        # --- NEW: Handle course instructors (no image) ---
+        elif intent == "get_course_instructors" and db_results:
+            logging.info("Formatting course instructors response.")
+            bot_response_text = format_course_instructors(db_results)
+            # media_url remains None
+             
+        elif intent == "get_faculty_info" and db_results:
+             logging.info("Formatting faculty (FULL) response.")
+             
+             # --- MODIFIED: Check for image_url (This is the *only* place it's set now) ---
              if len(db_results) == 1 and db_results[0].get('image_url'):
                  logging.info(f"Found image_url for faculty: {db_results[0]['image_url']}")
                  bot_response_dict['media_url'] = db_results[0]['image_url']
              # --- END MODIFIED ---
                  
              bot_response_text = format_faculty_response(db_results)
+        
+        # --- NEW: Handle new placement intents ---
+        elif intent == "get_placement_summary" and db_results:
+            logging.info("Formatting placement SUMMARY response.")
+            # --- MODIFIED: Pass entities to the formatter ---
+            bot_response_text = format_placement_summary(db_results, entities)
+            
+        elif intent == "get_company_stats" and db_results:
+            logging.info("Formatting company stats response.")
+            bot_response_text = format_company_stats(db_results, entities.get('company_name'))
+            
+        elif intent == "get_placement_count_by_type" and db_results:
+            logging.info("Formatting placement COUNT BY TYPE response.")
+            bot_response_text = format_placement_count_by_type(db_results, entities.get('ctc_type'))
+            
+        elif intent == "get_placement_count_by_ctc" and db_results:
+            logging.info("Formatting placement COUNT BY CTC response.")
+            bot_response_text = format_placement_count_by_ctc(
+                db_results, entities.get('ctc_operator'), entities.get('ctc_amount')
+            )
+        # --- END NEW ---
+             
         elif db_results: # For other intents with results, use Gemini to format
             logging.info(f"Generating final response via Gemini with DB results: {db_results[:1]}...") 
             bot_response_text = await gemini_client.generate_final_response(user_query, db_results)
         else: # Intent was recognized, but DB returned no results
             logging.info("Intent recognized, but no DB results found. Generating suggestion response.")
-            bot_response_text = await gemini_client.generate_suggestion_response(user_query)
+            
+            # --- NEW: Give better "no results" messages ---
+            if intent == "get_course_instructors":
+                bot_response_text = "I'm sorry, I couldn't find any instructors for that course. The course name or code might be misspelled."
+            elif intent == "get_faculty_location":
+                bot_response_text = "I'm sorry, I couldn't find a faculty member by that name."
+            elif intent == "get_faculty_info":
+                bot_response_text = "I'm sorry, I couldn't find a faculty member by that name."
+            elif intent == "get_timetable":
+                bot_response_text = "I'm sorry, I couldn't find any schedule matching your request."
+            # --- NEW: Better "no results" for placements ---
+            elif intent == "get_placement_summary":
+                bot_response_text = "I'm sorry, I couldn't retrieve the overall placement summary."
+            elif intent == "get_company_stats":
+                bot_response_text = f"I'm sorry, I couldn't find any placement data for a company matching '{entities.get('company_name')}'."
+            elif intent == "get_placement_count_by_type":
+                bot_response_text = f"I'm sorry, I couldn't find any companies matching the type '{entities.get('ctc_type')}'."
+            elif intent == "get_placement_count_by_ctc":
+                 bot_response_text = f"I'm sorry, I couldn't find any placement data for that CTC range."
+            # --- END NEW ---
+            else:
+                # Use the default suggestion generator
+                bot_response_text = await gemini_client.generate_suggestion_response(user_query)
+            # --- END NEW ---
             
         # --- Paranoid Check (Unchanged) ---
         if bot_response_text is None or bot_response_text.strip() == "":
@@ -417,4 +712,3 @@ if __name__ == '__main__':
         logging.critical(f"CRITICAL STARTUP ERROR: {startup_error}", exc_info=True)
     finally:
         logging.info("Flask application stopped.")
-
