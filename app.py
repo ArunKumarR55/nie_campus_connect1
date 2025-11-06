@@ -24,6 +24,137 @@ app = Flask(__name__, template_folder='static', static_folder='static')
 # --- Conversation Memory (Simple Dictionary) ---
 conversation_memory = {}
 
+
+# --- NEW: Static answers for common questions ---
+PLACEMENT_START_INFO = (
+    "Placements generally start from the 5th semester onwards. "
+    "Keep an eye on the placement cell notifications for exact dates and company visits!"
+)
+
+EXAM_REGISTRATION_INFO = (
+    "Here is the process for F Grade (Backlog/Makeup) Registration:\n\n"
+    "1. Open Contineo\n"
+    "2. Login with your USN and DOB\n"
+    "3. Click on 'F Grade Registration'\n"
+    "4. **Note:** Registration is a one-time activity.\n"
+    "5. Verify the failed course list before registration.\n"
+    "6. If you are not getting a failed course, kindly contact the SDSC office.\n"
+    "7. After selecting all the courses, submit the data.\n"
+    "8. You can click 'DELETE' under 'Pending Transactions' to edit registrations *before* approval.\n"
+    "9. If registrations are approved by SDSC, you cannot edit them.\n"
+    "10. Download the PDF and pay the fees through the SIS portal.\n"
+    "11. After fee payment, submit a copy of the receipt and PDF to the Exam Section (North/South as applicable).\n"
+    "12. The SDSC office will then approve the registration."
+)
+
+LOST_ITEM_INFO = {
+    "id card": (
+        "Here is the process for a lost ID card:\n\n"
+        "1. Log in to the SIS portal.\n"
+        "2. Select the 'lost ID card' option.\n"
+        "3. Pay the mentioned fees online.\n"
+        "4. Download the payment receipt PDF.\n"
+        "5. Submit the receipt to the college office."
+    ),
+    "hall ticket": (
+        "Here is the process for a lost hall ticket:\n\n"
+        "1. Log in to the SIS portal.\n"
+        "2. Select the 'lost hall ticket' option.\n"
+        "3. Pay the mentioned fees online.\n"
+        "4. Download the payment receipt PDF.\n"
+        "5. Submit the receipt to the college office."
+    )
+}
+# --- END NEW STATIC ANSWERS ---
+
+
+# --- NEW: Faculty Availability Helpers ---
+
+def parse_time(time_str):
+    """Parses a time string like '3pm' or '10:30' into a time object."""
+    try:
+        # Try parsing "3pm" or "10am"
+        return datetime.datetime.strptime(time_str.strip().lower(), '%I%p').time()
+    except ValueError:
+        try:
+            # Try parsing "3:30pm"
+            return datetime.datetime.strptime(time_str.strip().lower(), '%I:%M%p').time()
+        except ValueError:
+            try:
+                # Try parsing "15:00"
+                return datetime.datetime.strptime(time_str.strip(), '%H:%M').time()
+            except ValueError:
+                try:
+                    # Try parsing "15"
+                    hour = int(time_str.strip().replace("pm", "").replace("am", ""))
+                    if hour < 9: # Assume pm for 1, 2, 3, 4
+                        hour += 12
+                    return datetime.time(hour, 0)
+                except ValueError:
+                    return None
+
+def calculate_free_slots(busy_slots):
+    """
+    Calculates the free time slots for a faculty member,
+    considering college hours and breaks.
+    """
+    # Define college hours and breaks
+    COLLEGE_START = datetime.time(9, 0)
+    COLLEGE_END = datetime.time(16, 30)
+    BREAK_START = datetime.time(11, 0)
+    BREAK_END = datetime.time(11, 30)
+    LUNCH_START = datetime.time(13, 30)
+    LUNCH_END = datetime.time(14, 30)
+
+    # Combine busy slots and breaks into a single list of "unavailable" times
+    unavailable_slots = sorted(
+        [s for s in busy_slots if s] + # Filter out None or empty slots
+        [{'start_time': BREAK_START, 'end_time': BREAK_END},
+         {'start_time': LUNCH_START, 'end_time': LUNCH_END}],
+        key=lambda x: x['start_time']
+    )
+
+    free_slots = []
+    current_time = COLLEGE_START
+
+    for slot in unavailable_slots:
+        busy_start = slot['start_time']
+        busy_end = slot['end_time']
+
+        # If there's a gap between current time and the next busy slot, it's free time
+        if current_time < busy_start:
+            free_slots.append((current_time, busy_start))
+        
+        # Move the "current_time" cursor to the end of this busy slot
+        if current_time < busy_end:
+            current_time = busy_end
+
+    # After checking all busy slots, check if there's free time left until the end of the day
+    if current_time < COLLEGE_END:
+        free_slots.append((current_time, COLLEGE_END))
+
+    return free_slots
+# --- END NEW AVAILABILITY HELPERS ---
+
+
+# --- Helper Functions ---
+def format_faculty_courses(results, faculty_name):
+    """Formats the list of courses taught by a faculty member."""
+    if not results:
+        return f"I'm sorry, I couldn't find any courses taught by '{faculty_name}'."
+    
+    # Use the first result to get the faculty's properly cased name if possible
+    # This is a bit tricky as the query doesn't return faculty name, let's stick with the entity
+    response_lines = [f"Here are the courses taught by **{faculty_name}**:\n"]
+    
+    for course in results:
+        code = course.get('course_code')
+        name = course.get('course_name')
+        response_lines.append(f"• **{name}** ({code})")
+        
+    return "\n".join(response_lines)
+
+
 # --- Helper Functions ---
 def format_timetable_response(results, entities):
     """Formats timetable results into a readable string."""
@@ -31,29 +162,53 @@ def format_timetable_response(results, entities):
         return "I couldn't find any timetable entries matching your request."
 
     # --- Use entities passed from process_message for the title ---
-    branch = entities.get('branch', 'Unknown Branch')
-    section = entities.get('section', 'Unknown Section')
-    year = entities.get('year', 'Unknown Year')
-    day = entities.get('day', 'Unknown Day') # Get the specific day
+    branch = entities.get('branch') # Get just the value, or None
+    section = entities.get('section')
+    year = entities.get('year')
+    day = entities.get('day')
     
     # --- NEW: Get course name/code for title ---
     course_name = entities.get('course_name')
     course_code = entities.get('course_code')
+    faculty_name = entities.get('faculty_name') # Get the faculty name
     
-    title_parts = [part for part in [f"{year} year", branch, section] if part not in ['Unknown Branch', 'Unknown Section', 'Unknown Year']]
+    title_parts = []
+    
+    # Build the title based on what we *do* have
+    if year:
+        title_parts.append(f"{year} year")
+    if branch:
+        title_parts.append(branch)
+    if section:
+        title_parts.append(section)
     
     if course_name:
         title_parts.append(f"for {course_name}")
     elif course_code:
         title_parts.append(f"for {course_code}")
+    elif not title_parts and faculty_name:
+        # If the main title is empty, but we have a faculty name, use that.
+        title_parts.append(f"for {faculty_name}")
 
-    if day and day != 'Unknown Day':
-        response_lines = [f"Here is the schedule {' '.join(title_parts)} on {day.capitalize()}:"]
+    title_string = ' '.join(title_parts)
+
+    if day:
+        # If we have a title, use "on [day]".
+        if title_string:
+            response_lines = [f"Here is the schedule {title_string} on {day.capitalize()}:"]
+        else:
+            # This will probably be "Here is the schedule on [day]"
+            response_lines = [f"Here is the schedule on {day.capitalize()}:"]
+        
         response_lines.append(f"\n--- {day.upper()} ---")
     else:
-        # Handle case where day wasn't provided but we have results (e.g., full week schedule)
-        response_lines = [f"Here is the schedule {' '.join(title_parts)}:"]
-        
+        # No day provided (full week schedule)
+        if title_string:
+            response_lines = [f"Here is the schedule {title_string}:"]
+        else:
+            # Should be rare, but a fallback
+            response_lines = [f"Here is the schedule:"]
+            
     current_day = ""
     current_time = None
     for row in results:
@@ -80,7 +235,7 @@ def format_timetable_response(results, entities):
         location_parts = [part for part in [row.get('room_no'), row.get('location')] if part]
         if location_parts:
             details.append(f"@ {' - '.join(location_parts)}")
-        if row.get('class_type') and row['class_type'].lower() != 'lecture':
+        if row.get('class_type') and row.get('class_type').lower() != 'lecture':
             details.append(f"[{row['class_type']}]")
         if row.get('lab_batch'):
             details.append(f"(Batch {row['lab_batch']})")
@@ -298,6 +453,49 @@ def format_placement_count_by_ctc(results, operator, amount):
     
     return f"I found that **{total_students} {student_text}** were placed by **{total_companies} {company_text}** with a CTC *{op_text}* **{amount} LPA**."
 # --- END NEW FORMATTER ---
+# --- NEW: Formatter for faculty availability ---
+def format_faculty_availability(db_results, entities, day):
+    """Formats the faculty's free/busy schedule."""
+    
+    faculty_name = entities.get('faculty_name', 'This faculty member')
+    time_str = entities.get('time_of_day')
+    
+    # 1. Check for "No classes"
+    if not db_results:
+        return f"**{faculty_name}** has no classes scheduled on {day.capitalize()}. They are likely not on campus."
+
+    # 2. Calculate free slots
+    # db_results is a list of {'start_time': time_obj, 'end_time': time_obj}
+    free_slots = calculate_free_slots(db_results)
+
+    # 3. Check for a specific time
+    if time_str:
+        user_time = parse_time(time_str)
+        if not user_time:
+            return f"I'm sorry, I couldn't understand the time '{time_str}'. Please try a format like '3pm' or '15:00'."
+        
+        is_free = False
+        for start, end in free_slots:
+            if start <= user_time < end:
+                is_free = True
+                break
+        
+        if is_free:
+            return f"**Yes**, **{faculty_name}** appears to be **free** at {time_str} on {day.capitalize()}."
+        else:
+            return f"**No**, **{faculty_name}** appears to be **busy** at {time_str} on {day.capitalize()}."
+
+    # 4. List all free slots
+    if not free_slots:
+        return f"**{faculty_name}** appears to be busy for the entire day on {day.capitalize()}."
+
+    response_lines = [f"Here are the **free** slots for **{faculty_name}** on {day.capitalize()}:\n"]
+    for start, end in free_slots:
+        start_str = start.strftime("%I:%M %p")
+        end_str = end.strftime("%I:%M %p")
+        response_lines.append(f"• **{start_str}** to **{end_str}**")
+        
+    return "\n".join(response_lines)
 
 
 # --- Core Message Processing Logic ---
@@ -312,6 +510,9 @@ async def process_message(user_query, user_id):
     --- END MODIFIED ---
     """
     logging.info(f"Processing message from {user_id}: '{user_query}'")
+    memory_handled = False
+    intent = None
+    entities = {}
     
     # --- MODIFIED: Default response is now a dictionary ---
     bot_response_dict = {
@@ -367,30 +568,48 @@ async def process_message(user_query, user_id):
 
 
         # --- Step 2: Handle Conversation Memory (Timetable Example) ---
-        if intent == 'get_timetable':
-            # ... (memory logic is unchanged) ...
-            if user_id in conversation_memory and 'day' in entities and len(entities) == 1:
-                logging.info(f"Using memory for user {user_id}: {conversation_memory[user_id]}")
-                entities.update(conversation_memory[user_id])
-                conversation_memory.pop(user_id, None) 
-            elif 'day' not in entities:
-                 logging.info(f"Asking for day, saving memory for user {user_id}: {entities}")
-                 # --- NEW: Save course_code/name in memory ---
-                 memory_to_save = {k: v for k, v in entities.items() if k in ['branch', 'section', 'year', 'course_name', 'course_code']}
-                 if memory_to_save: 
-                    conversation_memory[user_id] = memory_to_save
-                 
-                 # --- MODIFIED: Return dictionary ---
-                 bot_response_dict['text'] = "Please specify which day you'd like the timetable for (e.g., 'timetable for 1st cse a on monday')."
-                 if bot_response_dict['text'] is None or bot_response_dict['text'].strip() == "":
-                    logging.error("CRITICAL: Generated empty response after asking for day.")
-                    bot_response_dict['text'] = "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY1)"
-                 return bot_response_dict # Return the dictionary
-            else:
-                 conversation_memory.pop(user_id, None)
-        else:
-             conversation_memory.pop(user_id, None)
+        if (intent == 'get_timetable' or intent == 'get_faculty_availability') and 'day' not in entities:
+            # User asked for timetable or availability but forgot the day.
+            # Ask for the day and save the context.
+            logging.info(f"Asking for day, saving memory for user {user_id}")
+            memory_to_save = {
+                'intent': intent,
+                'entities': entities
+            }
+            conversation_memory[user_id] = memory_to_save
 
+            bot_response_dict['text'] = "Sure, which day of the week are you asking about?"
+            return bot_response_dict
+
+        # Check if we need to *use* memory
+        elif user_id in conversation_memory:
+            saved_context = conversation_memory[user_id]
+            saved_intent = saved_context.get('intent')
+
+            # --- NEW FIX: Check if the user's *raw message* is a day ---
+            # This catches cases where the AI classifies "Monday" as 'unknown'
+            days_of_week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            user_reply_as_day = user_query.lower().strip()
+
+            if user_reply_as_day in days_of_week:
+                # User replied with a day. This is the answer we were waiting for.
+                logging.info(f"Using memory for user {user_id}: {saved_context}")
+                entities = saved_context.get('entities', {}) # Restore the saved context
+                # The saved context has the rest ('branch', 'faculty_name', etc.)
+                intent = saved_intent # Restore the original intent
+                entities['day'] = user_reply_as_day # Add the new 'day' entity
+                conversation_memory.pop(user_id, None) # Clear memory
+                memory_handled = True
+            else:
+                # The new query is unrelated, so clear the old memory
+                conversation_memory.pop(user_id, None)
+
+        # If user provided a day, clear any old memory
+        if 'day' in entities and not memory_handled:
+             conversation_memory.pop(user_id, None)
+        # If user provided a day, clear any old memory
+        if 'day' in entities and not memory_handled:
+             conversation_memory.pop(user_id, None)
 
         # --- Step 3: Fetch Data from Database based on Intent ---
         db_results = []
@@ -419,8 +638,44 @@ async def process_message(user_query, user_id):
         elif intent == "get_company_stats":
             company_name = entities.get('company_name')
             db_results = database.get_company_stats_data(company_name)
+
             # This intent never sends media
+        elif intent == "get_placement_start_info":
+            bot_response_dict['text'] = PLACEMENT_START_INFO
+            return bot_response_dict
+            
+        elif intent == "get_exam_registration_info":
+            bot_response_dict['text'] = EXAM_REGISTRATION_INFO
+            return bot_response_dict
+            
+        elif intent == "get_lost_item_info":
+            item = entities.get('lost_item', 'id card') # Default to id card
+            if 'hall ticket' in item.lower():
+                bot_response_text = LOST_ITEM_INFO.get('hall ticket')
+            else:
+                bot_response_text = LOST_ITEM_INFO.get('id card')
+            bot_response_dict['text'] = bot_response_text
+            return bot_response_dict
+        # --- END NEW STATIC INTENTS ---
         
+        # --- NEW: Handle Faculty Availability ---
+        elif intent == "get_faculty_availability":
+            faculty_name = entities.get('faculty_name')
+            day = entities.get('day') # Should be present thanks to memory
+            
+            # This check is a safeguard
+            if not faculty_name or not day:
+                 bot_response_dict['text'] = "I'm sorry, I missed who or which day you were asking about. Please try again, like 'when is Dr. Smith free on Monday?'"
+                 return bot_response_dict
+
+            db_results = database.get_faculty_schedule(faculty_name, day)
+            # The formatter will handle calculations, so db_results can be empty
+            # We pass db_results, entities (for time_of_day), and day
+            bot_response_text = format_faculty_availability(db_results, entities, day)
+            bot_response_dict['text'] = bot_response_text
+            return bot_response_dict
+        # --- END NEW FACULTY AVAILABILITY ---
+
         # --- NEW: get_placement_count_by_type ---
         elif intent == "get_placement_count_by_type":
             ctc_type = entities.get('ctc_type')
@@ -432,6 +687,14 @@ async def process_message(user_query, user_id):
             operator = entities.get('ctc_operator')
             amount = entities.get('ctc_amount')
             db_results = database.get_placement_count_by_ctc_data(operator, amount)
+            # This intent never sends media
+        elif intent == "get_faculty_courses":
+            faculty_name = entities.get('faculty_name')
+            # This check is a safeguard
+            if not faculty_name:
+                bot_response_dict['text'] = "I'm sorry, I missed who you were asking about. Please try again, like 'what courses does Dr. Smith teach?'"
+                return bot_response_dict
+            db_results = database.get_courses_for_faculty(faculty_name)
             # This intent never sends media
             
         # --- get_student_portal_info (Unchanged) ---
@@ -562,6 +825,11 @@ async def process_message(user_query, user_id):
             bot_response_text = format_placement_count_by_ctc(
                 db_results, entities.get('ctc_operator'), entities.get('ctc_amount')
             )
+        elif intent == "get_faculty_courses" and db_results:
+            logging.info("Formatting faculty COURSES response.")
+            # We pass the original entity name for the title
+            bot_response_text = format_faculty_courses(db_results, entities.get('faculty_name'))
+        # --- END NEW ---
         # --- END NEW ---
              
         elif db_results: # For other intents with results, use Gemini to format
@@ -588,6 +856,13 @@ async def process_message(user_query, user_id):
                 bot_response_text = f"I'm sorry, I couldn't find any companies matching the type '{entities.get('ctc_type')}'."
             elif intent == "get_placement_count_by_ctc":
                  bot_response_text = f"I'm sorry, I couldn't find any placement data for that CTC range."
+            elif intent == "get_faculty_availability":
+                # This is handled by the formatter, but as a fallback:
+                bot_response_text = f"I'm sorry, I couldn't find a schedule for '{entities.get('faculty_name')}'."
+            # --- END NEW ---
+            elif intent == "get_faculty_courses":
+                bot_response_text = f"I'm sorry, I couldn't find any courses taught by '{entities.get('faculty_name')}'."
+            # --- END NEW ---
             # --- END NEW ---
             else:
                 # Use the default suggestion generator

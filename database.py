@@ -608,3 +608,49 @@ def get_placement_count_by_ctc_data(operator, amount):
     # 4. Execute
     return execute_query(query, params)
 # --- END NEW FUNCTION ---
+def get_faculty_schedule(faculty_name, day):
+    """
+    Fetches all busy slots (start and end times) for a specific faculty on a specific day.
+    """
+    print(f"get_faculty_schedule called for: {faculty_name} on {day}")
+    
+    query = """
+        SELECT
+            t.start_time,
+            t.end_time
+        FROM timetable_slots t
+        JOIN classes c ON t.class_id = c.class_id
+        JOIN faculty f ON c.faculty_id = f.id
+        WHERE 1=1
+        AND REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') LIKE %s
+        AND t.day_of_week LIKE %s
+        ORDER BY t.start_time
+    """
+    
+    normalized_name = f"%{faculty_name.replace(' ', '').replace('.', '').lower()}%"
+    params = (normalized_name, f"%{day}%")
+    
+    return execute_query(query, params)
+def get_courses_for_faculty(faculty_name):
+    """
+    Fetches a distinct list of all courses taught by a specific faculty member.
+    """
+    print(f"get_courses_for_faculty called for: {faculty_name}")
+    
+    # This query finds the distinct courses taught by a faculty
+    query = """
+        SELECT DISTINCT
+            co.course_code,
+            co.course_name
+        FROM courses co
+        JOIN classes c ON co.course_code = c.course_code
+        JOIN faculty f ON c.faculty_id = f.id
+        WHERE REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') LIKE %s
+        ORDER BY co.course_name
+    """
+    
+    # Use the same name normalization
+    normalized_name = f"%{faculty_name.replace(' ', '').replace('.', '').lower()}%"
+    params = (normalized_name,)
+    
+    return execute_query(query, params)
