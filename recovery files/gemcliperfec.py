@@ -129,27 +129,49 @@ async def get_query_intent(user_query):
 
     Possible Intents:
     - "get_timetable": User is asking for a class schedule.
-    - "get_faculty_info": User is asking about a professor or faculty member.
+    - "get_faculty_info": User is asking *about* a professor (e.g., "who is", "tell me about"). This is for FULL details.
+    - "get_faculty_location": User is asking *only* for the office location of a faculty member (e.g., "where is", "location of").
+    - "get_course_instructors": User is asking *who* teaches a specific course.
     - "get_club_info": User is asking about student clubs.
     - "get_hostel_info": User is asking about student housing/hostels.
-    
     - "get_placements_info": User is asking about *contact info* for the placement office.
-    
     - "get_admissions_info": User is asking about college admissions.
     - "get_fees_info": User is asking about tuition fees or payments.
     - "get_transport_info": User is asking about college bus routes or transport.
     - "get_dress_code": User is asking about the college dress code.
-    - "get_anti_ragging_info": User isa asking about anti-ragging policies or contacts.
+    - "get_anti_ragging_info": User is asking about anti-ragging policies or contacts.
     - "get_events_info": User is asking about college events or fests.
     - "get_notices": User is asking for recent notices or announcements.
     - "get_scholarship_info": User is asking about scholarships.
     - "get_campus_map": User is asking for the college map, directions, or location of a specific place.
-    
-    - "get_placement_stats": User is asking for statistics, numbers, reports, companies visited, or number of students placed.
+    - "get_student_portal_info": User is asking about attendance, CIE marks, or internal marks.
 
-    --- NEW INTENT ---
-    - "get_student_portal_info": User is asking about attendance, CIE marks, internal marks, or test marks.
-    --- END NEW INTENT ---
+    --- NEW STUDENT INFO INTENTS ---
+    - "get_placement_start_info": User is asking when placements begin (e.g., "when do placements start?").
+    - "get_exam_registration_info": User is asking about makeup exams, backlog registration, or what to do if they fail.
+    - "get_lost_item_info": User is asking about losing an ID card or hall ticket.
+    --- END NEW STUDENT INFO INTENTS ---
+    
+    --- NEW FACULTY AVAILABILITY INTENT ---
+    - "get_faculty_availability": User is asking when a faculty member is free, what their schedule is, or if they are free at a specific time.
+    --- END NEW FACULTY AVAILABILITY INTENT ---
+
+    --- NEW PLACEMENT INTENTS ---
+    - "get_placement_stats": User is asking for the *full report*, *all companies*, or *complete details*. This will send a PDF.
+    - "get_placement_summary": User is asking for *specific high-level stats* (e.g., highest salary, average salary, median salary, total students placed).
+    - "get_company_stats": User is asking for stats related to *one specific company*.
+    - "get_placement_count_by_type": User is asking *how many* companies of a certain type came (e.g., "how many dream companies", "total mass recruiters").
+    - "get_placement_count_by_ctc": User is asking *how many* students or companies got packages *above or below* a certain CTC.
+    --- END NEW PLACEMENT INTENTS ---
+
+    --- NEW FACULTY COURSES INTENT ---
++    - "get_faculty_courses": User is asking for a list of all courses taught by a specific faculty member.
+     
+     - "general_chat": User is making small talk, greeting, or asking a question not related to the database.
+     - "unknown": The user's intent is unclear or not covered.
+@@ -282,6 +285,18 @@
+     {{"intent": "get_placement_count_by_ctc", "entities": {{"ctc_operator": "gt", "ctc_amount": 20}}}}
+     --- END UPDATED PLACEMENT EXAMPLES ---
     
     - "general_chat": User is making small talk, greeting, or asking a question not related to the database.
     - "unknown": The user's intent is unclear or not covered.
@@ -158,6 +180,8 @@ async def get_query_intent(user_query):
     Extracted Entities:
     - "faculty_name": The name of the faculty member (e.g., "Dr. Anitha R").
     - "course_name": The name of a course (e.g., "Applied Physics").
+    - "course_code": The code for a course (e.g., "18CS45", "PHY101").
+    - "company_name": The name of a company (e.g., "VISA", "JPMC", "Google").
     - "branch": The student branch (e.g., "CSE", "AI&ML", "ISE").
     - "year": The year of study (e.g., 1, 2, 3, 4).
     - "section": The class section (e.g., "A", "B").
@@ -167,6 +191,17 @@ async def get_query_intent(user_query):
     - "scholarship_name": The name of the scholarship (e.g., "Merit Scholarship", "TVS Scholarship").
     - "location_name": The specific place the user wants to find (e.g., "canteen", "library", "admin block", "ground").
     - "topic": A general topic (e.g., "ragging", "TechNIEks", "library notice").
+    
+    --- NEW ENTITY ---
+    - "stat_type": The specific placement stat requested (e.g., "highest_ctc", "average_ctc", "median_ctc", "lowest_ctc", "total_selects", "total_companies").
+    - "ctc_type": The type of placement package (e.g., "Dream", "Mass", "Core", "Open Dream", "Startup").
+    - "ctc_amount": The CTC value in lakhs (e.g., 12, 8.5).
+    - "ctc_operator": The comparison operator ("gt" for greater than, "lt" for less than).
+    --- END NEW ENTITY ---
+    --- NEW ENTITIES ---
+    - "lost_item": The item the user lost (e.g., "id card", "hall ticket").
+    - "time_of_day": A specific time mentioned by the user (e.g., "3pm", "10:00").
+    --- END NEW ENTITIES ---
 
     You must respond in JSON format only. Do not add any other text.
     Handle spelling mistakes gracefully.
@@ -176,88 +211,173 @@ async def get_query_intent(user_query):
     You must also ignore all honorifics like 'sir', 'mam', 'madam'. They are not part of the name.
     --- END NEW RULE ---
 
-    (Existing examples are unchanged...)
-    
     Example for "can i get timetable for cse a 1st year on monday":
     {{"intent": "get_timetable", "entities": {{"branch": "CSE", "year": 1, "section": "A", "day": "Monday"}}}}
     
     Example for "who is dr anitha r":
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
 
+
+
     Example for "who is principal":
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
     
-    Example for "who is John Doe":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "John Doe"}}}}
-    
-    --- NEW EXAMPLES TO HANDLE HONORIFICS ---
-    Example for "who is dr anitha r mam":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
-
     Example for "tell me about dr vanamala mam":
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. CK Vanamala"}}}}
     
     Example for "details about principal sir":
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
-    
-    Example for "tell me about John Doe madam":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "John Doe"}}}}
-    --- END NEW EXAMPLES ---
 
-    --- NEW EXAMPLES TO HANDLE 'WHERE IS A PERSON' ---
     Example for "where can i find vanamal":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "vanamal"}}}}
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "vanamal"}}}}
     
     Example for "where is dr anitha r's office":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
     
     Example for "location of principal's office":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
-    --- END NEW EXAMPLES ---
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+
+    Example for "who teaches applied physics":
+    {{"intent": "get_course_instructors", "entities": {{"course_name": "Applied Physics"}}}}
+    
+    Example for "who is the instructor for 18CS45":
+    {{"intent": "get_course_instructors", "entities": {{"course_code": "18CS45"}}}}
+
+    Example for "show me the schedule for 18CS45":
+    {{"intent": "get_timetable", "entities": {{"course_code": "18CS45"}}}} 
 
     Example for "what clubs are there":
     {{"intent": "get_club_info", "entities": {{}}}}
 
-    Example for "are there any scholarships":
-    {{"intent": "get_scholarship_info", "entities": {{}}}}
-
-    Example for "tell me about merit scholarship":
-    {{"intent": "get_scholarship_info", "entities": {{"scholarship_name": "Merit Scholarship"}}}}
-  
     Example for "show me the college map":
     {{"intent": "get_campus_map", "entities": {{}}}}
     
     Example for "where is the canteen":
     {{"intent": "get_campus_map", "entities": {{"location_name": "canteen"}}}}
-    
-    Example for "directions to the admin block":
-    {{"intent": "get_campus_map", "entities": {{"location_name": "admin block"}}}}
 
-    Example for "how many students were placed last year":
-    {{"intent": "get_placement_stats", "entities": {{}}}}
-    
-    Example for "show me placement stats":
+    --- UPDATED PLACEMENT EXAMPLES ---
+    Example for "show me all placement stats":
     {{"intent": "get_placement_stats", "entities": {{}}}}
 
-    Example for "what companies visited":
+    Example for "give me the full placement report":
     {{"intent": "get_placement_stats", "entities": {{}}}}
+
+    Example for "list of all companies that visited":
+    {{"intent": "get_placement_stats", "entities": {{}}}}
+
+    Example for "what was the highest salary":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "highest_ctc"}}}}
+    
+    Example for "what is the highest ctc":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "highest_ctc"}}}}
+
+    Example for "how many students were placed in total":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "total_selects"}}}}
+    
+    Example for "total selections":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "total_selects"}}}}
+
+    Example for "average ctc":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "average_ctc"}}}}
+
+    Example for "what is the median salary":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "median_ctc"}}}}
+    
+    Example for "lowest package":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "lowest_ctc"}}}}
+    
+    Example for "how many companies came":
+    {{"intent": "get_placement_summary", "entities": {{"stat_type": "total_companies"}}}}
+    
+    Example for "placement summary":
+    {{"intent": "get_placement_summary", "entities": {{}}}}
+
+    Example for "stats for VISA":
+    {{"intent": "get_company_stats", "entities": {{"company_name": "VISA"}}}}
+
+    Example for "how many people did JPMC hire":
+    {{"intent": "get_company_stats", "entities": {{"company_name": "JPMC"}}}}
+    
+    Example for "what was the ctc for Pure Storage":
+    {{"intent": "get_company_stats", "entities": {{"company_name": "Pure Storage"}}}}
 
     Example for "who is the placement officer":
     {{"intent": "get_placements_info", "entities": {{}}}}
+    
+    Example for "how many dream companies offered packages":
+    {{"intent": "get_placement_count_by_type", "entities": {{"ctc_type": "Dream"}}}}
 
-    --- NEW EXAMPLES FOR STUDENT PORTAL ---
+    Example for "how many comapanies offerd dream packages":
+    {{"intent": "get_placement_count_by_type", "entities": {{"ctc_type": "Dream"}}}}
+    
+    Example for "total mass recruiters":
+    {{"intent": "get_placement_count_by_type", "entities": {{"ctc_type": "Mass"}}}}
+    
+    Example for "how many core companies came":
+    {{"intent": "get_placement_count_by_type", "entities": {{"ctc_type": "Core"}}}}
+    
+    Example for "how many students got placed with a ctc of more than 12 lakhs":
+    {{"intent": "get_placement_count_by_ctc", "entities": {{"ctc_operator": "gt", "ctc_amount": 12}}}}
+    
+    Example for "total selections with packages less than 8 lakhs":
+    {{"intent": "get_placement_count_by_ctc", "entities": {{"ctc_operator": "lt", "ctc_amount": 8}}}}
+    
+    Example for "number of students who got over 20 lpa":
+    {{"intent": "get_placement_count_by_ctc", "entities": {{"ctc_operator": "gt", "ctc_amount": 20}}}}
+    --- END UPDATED PLACEMENT EXAMPLES ---
+
     Example for "how to check attendance":
     {{"intent": "get_student_portal_info", "entities": {{}}}}
     
     Example for "where can i check my cie marks":
     {{"intent": "get_student_portal_info", "entities": {{}}}}
 
-    Example for "what is my attendance status":
-    {{"intent": "get_student_portal_info", "entities": {{}}}}
+    --- NEW STUDENT INFO EXAMPLES ---
+    Example for "when do placements start":
+    {{"intent": "get_placement_start_info", "entities": {{}}}}
+    
+    Example for "when do placement activities begin for 5th sem":
+    {{"intent": "get_placement_start_info", "entities": {{}}}}
 
-    Example for "internal marks":
-    {{"intent": "get_student_portal_info", "entities": {{}}}}
-    --- END NEW EXAMPLES ---
+    Example for "what to do if I fail a class":
+    {{"intent": "get_exam_registration_info", "entities": {{}}}}
+
+    Example for "how to register for makeup exam":
+    {{"intent": "get_exam_registration_info", "entities": {{}}}}
+
+    Example for "i lost my id card":
+    {{"intent": "get_lost_item_info", "entities": {{"lost_item": "id card"}}}}
+
+    Example for "what to do if i lose my hall ticket":
+    {{"intent": "get_lost_item_info", "entities": {{"lost_item": "hall ticket"}}}}
+    --- END NEW STUDENT INFO EXAMPLES ---
+    --- NEW FACULTY COURSES EXAMPLES ---
++   Example for "what courses are taught by Dr. Kuzhalvaimozhi":
++    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr. Kuzhalvaimozhi"}}}}
++
++   Example for "what subjects does Dr. Anitha R teach":
++    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
++
++   Example for "list all of principal's courses":
++    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
++    --- END NEW FACULTY COURSES EXAMPLES ---
+
+    --- NEW FACULTY AVAILABILITY EXAMPLES ---
+    Example for "when is Dr Vanamala free on monday":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr Vanamala", "day": "Monday"}}}}
+
+    Example for "is Dr Anitha R free at 3pm on tuesday":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr Anitha R", "day": "Tuesday", "time_of_day": "3pm"}}}}
+    
+    Example for "is principal sir free":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+
+    Example for "what is dr smith's schedule on friday":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "dr smith", "day": "Friday"}}}}
+    
+    Example for "show me all of dr anitha's classes":
+    {{"intent": "get_timetable", "entities": {{"faculty_name": "dr anitha"}}}}
+    --- END NEW FACULTY AVAILABILITY EXAMPLES ---
 
     Example for "thanks":
     {{"intent": "general_chat", "entities": {{}}}}
@@ -387,4 +507,3 @@ async def generate_suggestion_response(user_query):
     except Exception as e:
         print(f"Error generating suggestion response from Gemini: {e}")
         return f"I'm sorry, I couldn't find information about that. (Error: {e})"
-
