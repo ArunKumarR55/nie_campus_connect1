@@ -5,3 +5,5 @@ mysql-connector-python
 google-generativeai
 aiohttp
 pyngrok
+gunicorn
+uvicorn
