@@ -145,7 +145,7 @@ async def get_query_intent(user_query):
     - "get_events_info": User is asking about college events or fests.
     - "get_notices": User is asking for recent notices or announcements.
     - "get_scholarship_info": User is asking about scholarships.
-    - "get_campus_map": User is asking for the college map, directions, or location of a specific place.
+    - "get_location": User is asking for the location of a specific place (room, lab, office) or the campus map.
     - "get_student_portal_info": User is asking about attendance, CIE marks, or internal marks.
 
     --- STUDENT INFO INTENTS ---
@@ -177,9 +177,14 @@ async def get_query_intent(user_query):
     - "club_name": The name of the club (e.g., "NISB", "Robotics").
     - "hostel_name": The name of the hostel (e.g., "NIE North Men's Hostel").
     - "scholarship_name": The name of the scholarship (e.g., "Merit Scholarship", "TVS Scholarship").
-    - "location_name": The specific place the user wants to find (e.g., "canteen", "library", "admin block", "ground").
     - "topic": A general topic (e.g., "ragging", "TechNIEks", "library notice").
     
+    --- NEW LOCATION ENTITIES ---
+    - "location_name": A generic place the user wants to find (e.g., "canteen", "ground"). This is the fallback.
+    - "room_number": A specific room (e.g., "105", "210", "MB-1").
+    - "lab_name": A specific lab (e.g., "ISE lab", "CSE labs").
+    - "office_name": A specific office (e.g., "principal office", "placement section", "hod office").
+
     --- PLACEMENT ENTITIES ---
     - "stat_type": The specific placement stat requested (e.g., "highest_ctc", "average_ctc", "median_ctc", "lowest_ctc", "total_selects", "total_companies").
     - "ctc_type": The type of placement package (e.g., "Dream", "Mass", "Core", "Open Dream", "Startup").
@@ -205,13 +210,19 @@ async def get_query_intent(user_query):
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
     
     Example for "who is principal":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
     
     Example for "tell me about dr vanamala mam":
     {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. CK Vanamala"}}}}
     
     Example for "details about principal sir":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
+
+    Example for "who is the coe":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Dr. S Kuzhalvaimozhi"}}}}
+
+    Example for "who is the dean":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "C Vidya Raj"}}}}
 
     Example for "where can i find vanamal":
     {{"intent": "get_faculty_location", "entities": {{"faculty_name": "vanamal"}}}}
@@ -220,7 +231,7 @@ async def get_query_intent(user_query):
     {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
     
     Example for "location of principal's office":
-    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
 
     Example for "who teaches applied physics":
     {{"intent": "get_course_instructors", "entities": {{"course_name": "Applied Physics"}}}}
@@ -234,11 +245,49 @@ async def get_query_intent(user_query):
     Example for "what clubs are there":
     {{"intent": "get_club_info", "entities": {{}}}}
 
+    --- NEW LOCATION EXAMPLES ---
     Example for "show me the college map":
-    {{"intent": "get_campus_map", "entities": {{}}}}
+    {{"intent": "get_location", "entities": {{}}}}
     
     Example for "where is the canteen":
-    {{"intent": "get_campus_map", "entities": {{"location_name": "canteen"}}}}
+    {{"intent": "get_location", "entities": {{"location_name": "canteen"}}}}
+    
+    Example for "where is room 105":
+    {{"intent": "get_location", "entities": {{"room_number": "105"}}}}
+    
+    Example for "location of classroom 201":
+    {{"intent": "get_location", "entities": {{"room_number": "201"}}}}
+    
+    Example for "where is mb-2":
+    {{"intent": "get_location", "entities": {{"room_number": "MB-2"}}}}
+    
+    Example for "where are the ise labs":
+    {{"intent": "get_location", "entities": {{"lab_name": "ISE"}}}}
+    
+    Example for "where are the cs labs":
+    {{"intent": "get_location", "entities": {{"lab_name": "CSE"}}}}
+    
+    Example for "is lab location":
+    {{"intent": "get_location", "entities": {{"lab_name": "ISE"}}}}
+    
+    Example for "cse lab location":
+    {{"intent": "get_location", "entities": {{"lab_name": "CSE"}}}}
+    
+    Example for "where is the library":
+    {{"intent": "get_location", "entities": {{"location_name": "library"}}}}
+    
+    Example for "where is the placement office":
+    {{"intent": "get_location", "entities": {{"office_name": "placement"}}}}
+    
+    Example for "location of scholarship section":
+    {{"intent": "get_location", "entities": {{"office_name": "scholarship"}}}}
+    
+    Example for "where is the auditorium":
+    {{"intent": "get_location", "entities": {{"office_name": "auditorium"}}}}
+    
+    Example for "where are the hods":
+    {{"intent": "get_location", "entities": {{"office_name": "hod"}}}}
+    --- END NEW LOCATION EXAMPLES ---
 
     --- PLACEMENT EXAMPLES ---
     Example for "show me all placement stats":
@@ -348,6 +397,20 @@ async def get_query_intent(user_query):
     Example for "what to do if i lose my hall ticket":
     {{"intent": "get_lost_item_info", "entities": {{"lost_item": "hall ticket"}}}}
     --- END STUDENT INFO EXAMPLES ---
+
+    --- NEW DRESS CODE EXAMPLES ---
+    Example for "what is the dress code":
+    {{"intent": "get_dress_code", "entities": {{}}}}
+
+    Example for "is id card compulsory":
+    {{"intent": "get_dress_code", "entities": {{}}}}
+    
+    Example for "do i have to wear my id card":
+    {{"intent": "get_dress_code", "entities": {{}}}}
+
+    Example for "are jeans allowed":
+    {{"intent": "get_dress_code", "entities": {{"category": "jeans"}}}}
+    --- END NEW DRESS CODE EXAMPLES ---
     
     --- FACULTY COURSES EXAMPLES ---
     Example for "what courses are taught by Dr. Kuzhalvaimozhi":
@@ -357,7 +420,7 @@ async def get_query_intent(user_query):
     {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr. Anitha R"}}}}
 
     Example for "list all of principal's courses":
-    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
     --- END FACULTY COURSES EXAMPLES ---
 
     --- FACULTY AVAILABILITY EXAMPLES ---
@@ -368,7 +431,7 @@ async def get_query_intent(user_query):
     {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr Anitha R", "day": "Tuesday", "time_of_day": "3pm"}}}}
     
     Example for "is principal sir free":
-    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr. N V Archana"}}}}
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
 
     Example for "what is dr smith's schedule on friday":
     {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "dr smith", "day": "Friday"}}}}
@@ -377,13 +440,19 @@ async def get_query_intent(user_query):
     {{"intent": "get_timetable", "entities": {{"faculty_name": "dr anitha"}}}}
     --- END FACULTY AVAILABILITY EXAMPLES ---
     
-    --- FOLLOW-UP EXAMPLES ---
+    --- FOLLOW-UP EXAMPLES (FOR SLOT-FILLING) ---
     Example for "what about for A section":
-    {{"intent": "get_course_instructors", "entities": {{"section": "A"}}}}
+    {{"intent": "unknown", "entities": {{"section": "A"}}}}
     
     Example for "and for cse b":
-    {{"intent": "get_course_instructors", "entities": {{"branch": "CSE", "section": "B"}}}}
+    {{"intent": "unknown", "entities": {{"branch": "CSE", "section": "B"}}}}
     
+    Example for "cse a 1st year":
+    {{"intent": "unknown", "entities": {{"branch": "CSE", "section": "A", "year": 1}}}}
+
+    Example for "monday":
+    {{"intent": "unknown", "entities": {{"day": "Monday"}}}}
+
     Example for "yes":
     {{"intent": "general_chat", "entities": {{}}}}
     
@@ -456,7 +525,6 @@ async def generate_final_response(user_query, db_results):
     Uses Gemini to generate a natural language response based on the query and DB results.
     This is used for 'general_chat' or when DB results are found.
     """
-    # (This function is unchanged from your file)
     simple_queries = ['hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'bye', 'goodbye', '?']
     is_simple_query = user_query.lower().strip() in simple_queries or len(user_query.strip()) < 4
 
@@ -472,6 +540,7 @@ async def generate_final_response(user_query, db_results):
             "please try rephrasing your question with more details."
         )
 
+    # --- THIS IS THE UPDATED LOGIC ---
     if is_simple_query:
         system_prompt = f"""
         You are a friendly and helpful college chatbot assistant.
@@ -479,17 +548,31 @@ async def generate_final_response(user_query, db_results):
         - Respond naturally and conversationally (e.g., "Hello!", "How can I help?", "You're welcome!", "Okay.").
         - Do NOT add any suggestion links or ask the user to rephrase, just be polite.
         """
-    else:
+    elif db_results:
+        # NEW: This is the prompt for when we HAVE data from the database.
         system_prompt = f"""
-        You are a friendly and helpful college chatbot assistant. Your job is to answer the user's query based on the information provided.
+        You are a friendly and helpful college chatbot assistant.
+        - Your job is to answer the user's query based *only* on the "Database Results" provided.
+        - Answer the question directly and naturally.
+        - If the Database Results contain the exact answer, provide it. (e.g., User asks "is id card compulsory?", Data says "You must always carry your ID CARD").
+        - If the Database Results are relevant but don't *specifically* answer the question, summarize the relevant rules (e.g., if the user asks "are jeans allowed?" and the data lists "Jeans Pants" under "Allowed").
+        - Do not make up information.
+        - Format the answer clearly.
+        """
+    else:
+        # This is the old prompt, now used ONLY for 'general_chat' or 'unknown'
+        # when no data was found.
+        system_prompt = f"""
+        You are a friendly and helpful college chatbot assistant. Your job is to answer the user's query.
         - Be conversational and polite.
-        - The "Database Results" are empty or "[]", meaning you are in a 'general_chat' or 'unknown' intent.
+        - The "Database Results" are empty, meaning you are in a 'general_chat' or 'unknown' intent.
         - The user's query seems like a real question, but you don't have a specific function for it.
         - First, try to answer the query naturally (e.g., "I'm a bot...").
         - THEN, politely add the following suggestion: "{suggestion_text}"
         - Do not make up information.
         - Keep answers concise and clear.
         """
+    # --- END OF UPDATED LOGIC ---
     
     payload = {
         "contents": [

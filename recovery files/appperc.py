@@ -138,6 +138,41 @@ def calculate_free_slots(busy_slots):
 
 
 # --- Helper Functions ---
+
+# --- NEW: Conversation Memory Helpers ---
+def is_positive_reply(query):
+    """Checks if a query is a 'yes' answer."""
+    query_lower = query.lower().strip()
+    return query_lower in ['yes', 'yep', 'ya', 'correct', 'y', 'that is right', "that's right", 'ok', 'yes please']
+
+def is_negative_reply(query):
+    """Checks if a query is a 'no' answer."""
+    query_lower = query.lower().strip()
+    return query_lower in ['no', 'nope', 'n', 'wrong', 'that is wrong', "that's wrong", 'no thanks']
+
+def is_similar_faculty_name(name_from_user, name_from_db):
+    """
+    Simple check to see if the user's query is *different* from the DB result.
+    e.g., user="kuzalvaimozhi", db="Dr S Kuzhalvaimozhi" -> True (different)
+    e.g., user="Dr S Kuzhalvaimozhi", db="Dr S Kuzhalvaimozhi" -> False (same)
+    e.g., user="kuzhalvaimozhi", db="Dr S Kuzhalvaimozhi" -> False (same enough)
+    """
+    user_norm = name_from_user.lower().replace('.', '').replace('dr', '').replace(' ', '')
+    db_norm = name_from_db.lower().replace('.', '').replace('dr', '').replace(' ', '')
+    
+    if user_norm == db_norm:
+        return False # They are identical
+    
+    # If the user's query is a substring of the full name, it's close enough
+    if user_norm in db_norm:
+        return False # e.g., "kuzhalvaimozhi" in "drskuzhalvaimozhi"
+        
+    # If we are here, the names are different enough to warrant a check
+    # e.g., user="kuzalvaimozhi" is NOT in "drskuzhalvaimozhi"
+    return True
+
+# --- END NEW MEMORY HELPERS ---
+
 def format_faculty_courses(results, faculty_name):
     """Formats the list of courses taught by a faculty member."""
     if not results:
@@ -313,8 +348,8 @@ def format_faculty_location(results):
         return "\n".join(response_lines)
 # --- END NEW FORMATTER ---
 
-# --- NEW FORMATTER FUNCTION ---
-def format_course_instructors(results):
+# --- MODIFIED FORMATTER FUNCTION ---
+def format_course_instructors(results, entities):
     """Formats the list of course instructors into a readable string."""
     if not results:
         return "I couldn't find any instructors for that course, or the course code/name might be incorrect."
@@ -324,16 +359,32 @@ def format_course_instructors(results):
     course_name = first_result.get('course_name')
     course_code = first_result.get('course_code')
     
+    # --- NEW: Handle specific section/branch query ---
+    req_branch = entities.get('branch')
+    req_section = entities.get('section')
+    
+    if (req_branch or req_section) and len(results) == 1:
+        # User asked for a specific section and got one result
+        row = results[0]
+        name = row.get('faculty_name', 'N/A')
+        branch = row.get('branch', 'N/A')
+        section = row.get('section', 'N/A')
+        return (
+            f"The instructor for **{course_name} ({course_code})** "
+            f"for the **{branch} - {section}** section is **{name}**."
+        )
+    
+    # --- Default: List all found instructors ---
     response_lines = [f"Here are the instructors for **{course_name} ({course_code})**:\n"]
     
     for row in results:
         name = row.get('faculty_name', 'N/A')
         branch = row.get('branch', 'N/A')
         section = row.get('section', 'N/A')
-        response_lines.append(f"• **{name}** teaches {branch} - {section} section.")
+        response_lines.append(f"• **{name}** teaches **{branch} - {section}** section.")
     
     return "\n".join(response_lines)
-# --- END NEW FORMATTER ---
+# --- END MODIFIED FORMATTER ---
 
 # --- UPDATED PLACEMENT FORMATTER ---
 def format_placement_summary(results, entities):
@@ -451,18 +502,44 @@ def format_placement_count_by_ctc(results, operator, amount):
     student_text = "student" if total_students == 1 else "students"
     company_text = "company" if total_companies == 1 else "companies"
     
-    return f"I found that **{total_students} {student_text}** were placed by **{total_companies} {company_text}** with a CTC *{op_text}* **{amount} LPA**."
+    return (
+        f"I found that **{total_students} {student_text}** were placed by "
+        f"**{total_companies} {company_text}** with a CTC *{op_text}* **{amount} LPA**."
+    )
 # --- END NEW FORMATTER ---
+
+# --- NEW: Formatter for LISTING companies by ctc ---
+def format_placement_companies_by_ctc(results, operator, amount):
+    """Formats the LIST of companies by CTC threshold."""
+    if not results:
+        op_text = "more than" if operator == 'gt' else "less than"
+        return f"I'm sorry, I couldn't find any companies that offered packages {op_text} {amount} LPA."
+        
+    op_text = "more than" if operator == 'gt' else "less than"
+    
+    response_lines = [f"Here are the companies with a CTC **{op_text} {amount} LPA**:\n"]
+    
+    for company in results:
+        name = company.get('company_name', 'N/A')
+        ctc = company.get('ctc', 'N/A')
+        selects = company.get('num_selects', 'N/A')
+        response_lines.append(f"• **{name}**: {ctc} LPA ({selects} selections)")
+        
+    return "\n".join(response_lines)
+# --- END NEW FORMATTER ---
+
 # --- NEW: Formatter for faculty availability ---
-def format_faculty_availability(db_results, entities, day):
+def format_faculty_availability(db_results, entities, day, faculty_name_from_db):
     """Formats the faculty's free/busy schedule."""
     
-    faculty_name = entities.get('faculty_name', 'This faculty member')
+    # --- MODIFIED: Use the confirmed name ---
+    faculty_name = faculty_name_from_db or entities.get('faculty_name', 'This faculty member')
     time_str = entities.get('time_of_day')
     
     # 1. Check for "No classes"
     if not db_results:
-        return f"**{faculty_name}** has no classes scheduled on {day.capitalize()}. They are likely not on campus."
+        # --- MODIFIED: This is now accurate, as existence is checked *before* this ---
+        return f"**{faculty_name}** has no classes scheduled on {day.capitalize()}. They are likely no in the campus"
 
     # 2. Calculate free slots
     # db_results is a list of {'start_time': time_obj, 'end_time': time_obj}
@@ -507,7 +584,6 @@ async def process_message(user_query, user_id):
     --- MODIFIED ---
     This function now *always* returns a dictionary:
     {'text': 'Your response here', 'media_url': 'URL_or_None'}
-    --- END MODIFIED ---
     """
     logging.info(f"Processing message from {user_id}: '{user_query}'")
     memory_handled = False
@@ -532,8 +608,88 @@ async def process_message(user_query, user_id):
         intent = intent_data.get('intent', 'unknown')
         entities = intent_data.get('entities', {})
         logging.info(f"Intent: {intent}, Entities: {entities}")
+        
+        # --- Step 1.5: Check for Memory Handlers ---
+        if user_id in conversation_memory:
+            logging.info(f"User {user_id} has saved memory: {conversation_memory[user_id]}")
+            saved_context = conversation_memory[user_id]
+            pending_intent = saved_context.get('pending_intent')
 
-        # --- Step 1.5: Role Override Logic (Unchanged) ---
+            # --- A: Handle "Forgot Day" ---
+            if pending_intent == 'ask_for_day':
+                days_of_week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                user_reply_as_day = user_query.lower().strip()
+                if user_reply_as_day in days_of_week:
+                    logging.info(f"Using 'ask_for_day' memory for user {user_id}.")
+                    entities = saved_context.get('entities', {}) # Restore saved context
+                    intent = saved_context.get('intent') # Restore original intent
+                    entities['day'] = user_reply_as_day # Add the new day
+                    conversation_memory.pop(user_id, None) # Clear memory
+                    memory_handled = True
+                else:
+                    conversation_memory.pop(user_id, None) # Unrelated query, clear memory
+            
+            # --- B: Handle "Confirm Faculty Name" ---
+            elif pending_intent == 'confirm_faculty_name':
+                if is_positive_reply(user_query):
+                    logging.info(f"Using 'confirm_faculty_name' (POSITIVE) memory for user {user_id}.")
+                    intent = saved_context['intent']
+                    entities = saved_context['entities']
+                    entities['faculty_name'] = saved_context['suggested_name']
+                    entities['faculty_name_confirmed'] = True # Flag to skip re-checking
+                    conversation_memory.pop(user_id, None)
+                    memory_handled = True
+                elif is_negative_reply(user_query):
+                    logging.info(f"Using 'confirm_faculty_name' (NEGATIVE) memory for user {user_id}.")
+                    conversation_memory.pop(user_id, None)
+                    bot_response_dict['text'] = "My apologies. Could you please spell out the name of the faculty member you are looking for?"
+                    return bot_response_dict
+                elif pending_intent == 'clarify_faculty_name':
+                # Check if the new query is just a faculty name.
+                # The 'intent' will likely be 'get_faculty_info' or 'unknown' for a simple name.
+                    if entities.get('faculty_name'):
+                        logging.info(f"Using 'clarify_faculty_name' memory for user {user_id}.")
+                    # Restore the *original* intent (e.g., 'get_faculty_location')
+                        intent = saved_context.get('intent') 
+                    # The 'entities' (with the now-correct name) are fine as-is.
+                        conversation_memory.pop(user_id, None)
+                        memory_handled = True
+                    else:
+                        conversation_memory.pop(user_id, None) # Unrelated query
+                else:
+                    conversation_memory.pop(user_id, None) # Unrelated query
+            
+            # --- C: Handle "Clarify Instructor Section" ---
+            elif pending_intent == 'clarify_instructor_section':
+                # Check if new query is just a section/branch
+                if intent == 'get_course_instructors' and (entities.get('branch') or entities.get('section')):
+                    logging.info(f"Using 'clarify_instructor_section' memory for user {user_id}.")
+                    saved_entities = saved_context.get('entities', {})
+                    entities.update(saved_entities) # Merge old (course) + new (section)
+                    intent = 'get_course_instructors' # Ensure intent is correct
+                    conversation_memory.pop(user_id, None)
+                    memory_handled = True
+                else:
+                    conversation_memory.pop(user_id, None) # Unrelated query
+
+            # --- D: Handle "List Companies by CTC" ---
+            elif pending_intent == 'list_companies_by_ctc':
+                if intent == 'get_placement_companies_by_ctc':
+                    logging.info(f"Using 'list_companies_by_ctc' memory for user {user_id}.")
+                    saved_entities = saved_context.get('entities', {})
+                    entities.update(saved_entities) # Merge old (op, amount) + new (nothing)
+                    intent = 'get_placement_companies_by_ctc'
+                    conversation_memory.pop(user_id, None)
+                    memory_handled = True
+                else:
+                    conversation_memory.pop(user_id, None) # Unrelated query
+                    
+            # --- E: Clear old "Forgot Day" memory if user provided a day ---
+            # This is a fallback from your original code
+            elif 'day' in entities and not memory_handled:
+                conversation_memory.pop(user_id, None)
+
+        # --- Step 1.6: Role Override Logic (Unchanged) ---
         user_query_lower = user_query.lower()
         role_keywords_in_query = []
         is_explicit_role_query = False 
@@ -549,7 +705,6 @@ async def process_message(user_query, user_id):
              if any(keyword in user_query_lower.split() for keyword in controller_keywords):
                  is_explicit_role_query = True
         
-        # --- MODIFIED: Apply role logic to both info and location intents ---
         if (intent == 'get_faculty_info' or intent == 'get_faculty_location') and role_keywords_in_query:
             role_to_search = role_keywords_in_query[0]
             if is_explicit_role_query and entities.get('faculty_name'):
@@ -565,14 +720,72 @@ async def process_message(user_query, user_id):
                  entities['department'] = role_to_search
             logging.info(f"Role keyword detected. Updated Entities for DB search: {entities}")
         # --- End Override Logic ---
+        
+        # --- Step 1.7: NEW - Faculty Spellcheck/Existence Check ---
+        faculty_intents = ['get_faculty_info', 'get_faculty_location', 'get_faculty_availability', 'get_faculty_courses']
+        faculty_name_from_user = entities.get('faculty_name')
+        faculty_name_confirmed = entities.get('faculty_name_confirmed', False) # Get confirmation flag
+        
+        if intent in faculty_intents and faculty_name_from_user and not faculty_name_confirmed and not memory_handled:
+            logging.info(f"Performing faculty existence/spellcheck for: '{faculty_name_from_user}'")
+            check_results = database.get_faculty_location(faculty_name_from_user) # This now returns exact or fuzzy matches
+            
+            if not check_results:
+                logging.warning("Faculty check: No results found.")
+                bot_response_dict['text'] = "I'm sorry, I couldn't find a faculty member by that name."
+                return bot_response_dict
+                
+            # Check the match type of the first result
+            closest_match = check_results[0]
+            suggested_name = closest_match['name']
+            match_type = closest_match.get('match_type', 'none')
 
+            # Check for ambiguity: multiple results were found (regardless of type)
+            if len(check_results) > 1:
+                logging.info(f"Faculty check: Ambiguous results found ({len(check_results)} matches).")
+                
+                # --- NEW: Save memory ---
+                conversation_memory[user_id] = {
+                    'pending_intent': 'clarify_faculty_name',
+                    'intent': intent # Save the original intent (e.g., 'get_faculty_location')
+                }
+                # --- END NEW ---
 
-        # --- Step 2: Handle Conversation Memory (Timetable Example) ---
+                # Format a "Did you mean..." list
+                bot_response_text = format_faculty_location(check_results) # Use existing formatter
+                bot_response_dict['text'] = bot_response_text
+                return bot_response_dict
+                
+            # --- Exactly one clear best match found ---
+            
+            # If it was a 'fuzzy' match, it's a typo. Ask for confirmation.
+            if match_type == 'fuzzy':
+                logging.info(f"Faculty check: Prompting for confirmation. User='{faculty_name_from_user}', DB='{suggested_name}' (Fuzzy Match)")
+                # Save context and ask for confirmation
+                conversation_memory[user_id] = {
+                    'pending_intent': 'confirm_faculty_name',
+                    'intent': intent,
+                    'entities': entities,
+                    'suggested_name': suggested_name
+                }
+                bot_response_dict['text'] = f"I found **{suggested_name}**. Did you mean this person?"
+                return bot_response_dict
+            
+            # --- Name is an 'exact' match ---
+            # (This means the normalized 'kuzalvaimozhi' matched 'drskuzhalvaimozhi')
+            logging.info(f"Faculty check: Name '{suggested_name}' (Exact Match) confirmed. Proceeding.")
+            entities['faculty_name'] = suggested_name # Correct the name for all other functions
+            entities['faculty_name_confirmed'] = True # Mark as confirmed
+            
+        # --- End Faculty Spellcheck ---
+
+        # --- Step 2: Handle "Forgot Day" Memory (Save) ---
         if (intent == 'get_timetable' or intent == 'get_faculty_availability') and 'day' not in entities:
             # User asked for timetable or availability but forgot the day.
             # Ask for the day and save the context.
-            logging.info(f"Asking for day, saving memory for user {user_id}")
+            logging.info(f"Asking for day, saving 'ask_for_day' memory for user {user_id}")
             memory_to_save = {
+                'pending_intent': 'ask_for_day', # NEW pending intent
                 'intent': intent,
                 'entities': entities
             }
@@ -580,36 +793,6 @@ async def process_message(user_query, user_id):
 
             bot_response_dict['text'] = "Sure, which day of the week are you asking about?"
             return bot_response_dict
-
-        # Check if we need to *use* memory
-        elif user_id in conversation_memory:
-            saved_context = conversation_memory[user_id]
-            saved_intent = saved_context.get('intent')
-
-            # --- NEW FIX: Check if the user's *raw message* is a day ---
-            # This catches cases where the AI classifies "Monday" as 'unknown'
-            days_of_week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-            user_reply_as_day = user_query.lower().strip()
-
-            if user_reply_as_day in days_of_week:
-                # User replied with a day. This is the answer we were waiting for.
-                logging.info(f"Using memory for user {user_id}: {saved_context}")
-                entities = saved_context.get('entities', {}) # Restore the saved context
-                # The saved context has the rest ('branch', 'faculty_name', etc.)
-                intent = saved_intent # Restore the original intent
-                entities['day'] = user_reply_as_day # Add the new 'day' entity
-                conversation_memory.pop(user_id, None) # Clear memory
-                memory_handled = True
-            else:
-                # The new query is unrelated, so clear the old memory
-                conversation_memory.pop(user_id, None)
-
-        # If user provided a day, clear any old memory
-        if 'day' in entities and not memory_handled:
-             conversation_memory.pop(user_id, None)
-        # If user provided a day, clear any old memory
-        if 'day' in entities and not memory_handled:
-             conversation_memory.pop(user_id, None)
 
         # --- Step 3: Fetch Data from Database based on Intent ---
         db_results = []
@@ -660,18 +843,13 @@ async def process_message(user_query, user_id):
         
         # --- NEW: Handle Faculty Availability ---
         elif intent == "get_faculty_availability":
-            faculty_name = entities.get('faculty_name')
-            day = entities.get('day') # Should be present thanks to memory
+            # --- MODIFIED: Existence/Day is already checked by this point ---
+            faculty_name = entities.get('faculty_name') # This is the *confirmed* name
+            day = entities.get('day') 
             
-            # This check is a safeguard
-            if not faculty_name or not day:
-                 bot_response_dict['text'] = "I'm sorry, I missed who or which day you were asking about. Please try again, like 'when is Dr. Smith free on Monday?'"
-                 return bot_response_dict
-
             db_results = database.get_faculty_schedule(faculty_name, day)
-            # The formatter will handle calculations, so db_results can be empty
-            # We pass db_results, entities (for time_of_day), and day
-            bot_response_text = format_faculty_availability(db_results, entities, day)
+            # Pass confirmed name to formatter
+            bot_response_text = format_faculty_availability(db_results, entities, day, faculty_name)
             bot_response_dict['text'] = bot_response_text
             return bot_response_dict
         # --- END NEW FACULTY AVAILABILITY ---
@@ -687,13 +865,30 @@ async def process_message(user_query, user_id):
             operator = entities.get('ctc_operator')
             amount = entities.get('ctc_amount')
             db_results = database.get_placement_count_by_ctc_data(operator, amount)
+            # --- NEW: Save memory for follow-up ---
+            if db_results and db_results[0] and db_results[0].get('total_companies', 0) > 0:
+                conversation_memory[user_id] = {
+                    'pending_intent': 'list_companies_by_ctc',
+                    'entities': { 'ctc_operator': operator, 'ctc_amount': amount }
+                }
             # This intent never sends media
-        elif intent == "get_faculty_courses":
-            faculty_name = entities.get('faculty_name')
-            # This check is a safeguard
-            if not faculty_name:
-                bot_response_dict['text'] = "I'm sorry, I missed who you were asking about. Please try again, like 'what courses does Dr. Smith teach?'"
+            
+        # --- NEW: get_placement_companies_by_ctc ---
+        elif intent == "get_placement_companies_by_ctc":
+            operator = entities.get('ctc_operator')
+            amount = entities.get('ctc_amount')
+            
+            if not operator or not amount:
+                bot_response_text = "I'm not sure which CTC range you're asking about. Please try 'list companies with ctc over 10 lpa'."
+                bot_response_dict['text'] = bot_response_text
                 return bot_response_dict
+                
+            db_results = database.get_placement_companies_by_ctc_data(operator, amount)
+            # This intent never sends media
+            
+        elif intent == "get_faculty_courses":
+            # --- MODIFIED: Existence checked ---
+            faculty_name = entities.get('faculty_name') # Confirmed name
             db_results = database.get_courses_for_faculty(faculty_name)
             # This intent never sends media
             
@@ -706,9 +901,8 @@ async def process_message(user_query, user_id):
         
         # --- get_faculty_location (Unchanged from prev) ---
         elif intent == "get_faculty_location":
-            name = entities.get('faculty_name')
-            dept = entities.get('department') # For role search (e.g., principal)
-            search_term = name or dept
+            # --- MODIFIED: Existence checked ---
+            search_term = entities.get('faculty_name') or entities.get('department')
             db_results = database.get_faculty_location(search_term)
             # --- This intent NEVER sends an image ---
             
@@ -716,36 +910,39 @@ async def process_message(user_query, user_id):
         elif intent == "get_course_instructors":
             course_name = entities.get('course_name')
             course_code = entities.get('course_code')
-            db_results = database.get_course_instructors(course_name, course_code)
+            # --- NEW: Pass branch/section ---
+            branch = entities.get('branch')
+            section = entities.get('section')
+            
+            db_results = database.get_course_instructors(course_name, course_code, branch, section)
+            
+            # --- NEW: Save memory for follow-up ---
+            if db_results and (course_name or course_code) and not (branch or section):
+                conversation_memory[user_id] = {
+                    'pending_intent': 'clarify_instructor_section',
+                    'entities': { 'course_name': course_name, 'course_code': course_code }
+                }
             # --- This intent NEVER sends an image ---
 
         elif intent == "get_faculty_info":
-             name = entities.get('faculty_name')
+             # --- MODIFIED: Existence checked ---
+             name = entities.get('faculty_name') # Confirmed name
              dept = entities.get('department')
              info = entities.get('info_type')
              db_results = database.get_faculty_info(name, dept, info)
              # --- This intent WILL send an image, see Step 4 ---
              
         elif intent == "get_timetable":
+             # --- MODIFIED: Faculty name is confirmed if present ---
              branch = entities.get('branch')
              section = entities.get('section')
              year = entities.get('year') 
-             day = entities.get('day')
+             day = entities.get('day') # Day is present
              faculty_name = entities.get('faculty_name')
              course_name = entities.get('course_name')
-             course_code = entities.get('course_code') # --- NEW ---
+             course_code = entities.get('course_code') 
              
-             # --- MODIFIED: Check for any valid entity ---
-             if day or branch or section or year or faculty_name or course_name or course_code:
-                 db_results = database.get_timetable(branch, section, year, day, faculty_name, course_name, course_code)
-             else:
-                 logging.warning("Timetable query attempted without any entities.")
-                 # --- MODIFIED: Return dictionary ---
-                 bot_response_dict['text'] = "It seems I missed what you wanted the timetable for. Please specify a branch, year, faculty, or course."
-                 if bot_response_dict['text'] is None or bot_response_dict['text'].strip() == "":
-                    logging.error("CRITICAL: Generated empty response in timetable no-day fallback.")
-                    bot_response_dict['text'] = "Oops! Something went wrong while processing your request. (Error code: TT-EMPTY2)"
-                 return bot_response_dict # Return the dictionary
+             db_results = database.get_timetable(branch, section, year, day, faculty_name, course_name, course_code)
         
         # ... (all other existing elif intents are unchanged) ...
         elif intent == "get_club_info":
@@ -790,9 +987,10 @@ async def process_message(user_query, user_id):
             # media_url remains None
             
         # --- NEW: Handle course instructors (no image) ---
-        elif intent == "get_course_instructors" and db_results:
+        elif intent == "get_course_instructors": # Handles db_results or not
             logging.info("Formatting course instructors response.")
-            bot_response_text = format_course_instructors(db_results)
+            # --- MODIFIED: Pass entities ---
+            bot_response_text = format_course_instructors(db_results, entities)
             # media_url remains None
              
         elif intent == "get_faculty_info" and db_results:
@@ -820,12 +1018,20 @@ async def process_message(user_query, user_id):
             logging.info("Formatting placement COUNT BY TYPE response.")
             bot_response_text = format_placement_count_by_type(db_results, entities.get('ctc_type'))
             
-        elif intent == "get_placement_count_by_ctc" and db_results:
+        elif intent == "get_placement_count_by_ctc": # Handles db_results or not
             logging.info("Formatting placement COUNT BY CTC response.")
             bot_response_text = format_placement_count_by_ctc(
                 db_results, entities.get('ctc_operator'), entities.get('ctc_amount')
             )
-        elif intent == "get_faculty_courses" and db_results:
+            
+        # --- NEW: Handle LISTING companies ---
+        elif intent == "get_placement_companies_by_ctc": # Handles db_results or not
+            logging.info("Formatting placement COMPANIES BY CTC response.")
+            bot_response_text = format_placement_companies_by_ctc(
+                db_results, entities.get('ctc_operator'), entities.get('ctc_amount')
+            )
+            
+        elif intent == "get_faculty_courses": # Handles db_results or not
             logging.info("Formatting faculty COURSES response.")
             # We pass the original entity name for the title
             bot_response_text = format_faculty_courses(db_results, entities.get('faculty_name'))
@@ -839,6 +1045,7 @@ async def process_message(user_query, user_id):
             logging.info("Intent recognized, but no DB results found. Generating suggestion response.")
             
             # --- NEW: Give better "no results" messages ---
+            # These are fallbacks, as formatters now handle most "no results"
             if intent == "get_course_instructors":
                 bot_response_text = "I'm sorry, I couldn't find any instructors for that course. The course name or code might be misspelled."
             elif intent == "get_faculty_location":
@@ -856,6 +1063,8 @@ async def process_message(user_query, user_id):
                 bot_response_text = f"I'm sorry, I couldn't find any companies matching the type '{entities.get('ctc_type')}'."
             elif intent == "get_placement_count_by_ctc":
                  bot_response_text = f"I'm sorry, I couldn't find any placement data for that CTC range."
+            elif intent == "get_placement_companies_by_ctc":
+                 bot_response_text = f"I'm sorry, I couldn't find any companies for that CTC range."
             elif intent == "get_faculty_availability":
                 # This is handled by the formatter, but as a fallback:
                 bot_response_text = f"I'm sorry, I couldn't find a schedule for '{entities.get('faculty_name')}'."
