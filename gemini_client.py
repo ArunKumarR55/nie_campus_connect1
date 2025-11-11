@@ -127,16 +127,12 @@ async def get_query_intent(user_query):
     system_prompt = f"""
     You are an intent classification system for a college chatbot. Your goal is to analyze the user's query and categorize it into one of the following intents, extracting relevant entities.
 
-    Possible Intents:
-    - "get_timetable": User is asking for a class schedule.
-    - "get_faculty_info": User is asking *about* a professor (e.g., "who is", "tell me about"). This is for FULL details.
-    - "get_faculty_location": User is asking *only* for the office location of a faculty member (e.g., "where is", "location of").
-    - "get_course_instructors": User is asking *who* teaches a specific course.
-    - "get_faculty_courses": User is asking for a list of all courses taught by a specific faculty member.
-    - "get_faculty_availability": User is asking when a faculty member is free, what their schedule is, or if they are free at a specific time.
+    --- INTENT DEFINITIONS ---
+
+    **General Intents:**
+    - "get_timetable": User is asking for a class schedule for a branch/section.
     - "get_club_info": User is asking about student clubs.
     - "get_hostel_info": User is asking about student housing/hostels.
-    - "get_placements_info": User is asking about *contact info* for the placement office.
     - "get_admissions_info": User is asking about college admissions.
     - "get_fees_info": User is asking about tuition fees or payments.
     - "get_transport_info": User is asking about college bus routes or transport.
@@ -145,63 +141,79 @@ async def get_query_intent(user_query):
     - "get_events_info": User is asking about college events or fests.
     - "get_notices": User is asking for recent notices or announcements.
     - "get_scholarship_info": User is asking about scholarships.
-    - "get_location": User is asking for the location of a specific place (room, lab, office) or the campus map.
+    - "get_location": User is asking for the location of a static place (room, lab, office) or the campus map.
     - "get_student_portal_info": User is asking about attendance, CIE marks, or internal marks.
+    - "get_break_info": User is asking about break or lunch timings.
+    **General Intents:**
+    - "get_timetable": User is asking for a class schedule...
+    - "get_help_escalation": User is frustrated, needs help, or wants to talk to a person.
+    - "get_club_info": User is asking about student clubs.
 
-    --- STUDENT INFO INTENTS ---
-    - "get_placement_start_info": User is asking when placements begin (e.g., "when do placements start?").
-    - "get_exam_registration_info": User is asking about makeup exams, backlog registration, or what to do if they fail.
+    **Faculty Intents:**
+    - "get_faculty_info": User is asking *about* a professor (e.g., "who is", "tell me about"). This is for FULL details.
+    - "get_faculty_location": User is asking *only* for the **static office location** of a faculty member (e.g., "where is office", "location of"). This intent *NEVER* has a 'day' entity.
+    - "get_faculty_location_on_day": User is asking *where* a faculty member *is* on a **specific day** (e.g., "where is dr anitha on monday", "where is mnr today"). This intent *MUST* have a 'day' entity.
+    - "get_faculty_schedule": User is asking for a faculty's *list of classes* on a specific day (e.g., "what is dr anitha's schedule", "what classes does mnr have tomorrow").
+    - "get_faculty_availability": User is asking when a faculty member is *free* or *busy* (e.g., "is dr anitha free at 3pm", "when is mnr free").
+    - "get_faculty_campus_availability": User is asking *which days* a faculty is on campus OR *if* they are on campus on a *specific day* (e.Read( "what days is dr anitha in college", "is mnr on north campus today").
+    - "get_faculty_courses": User is asking for a list of all courses taught by a specific faculty member (e.g., "what subjects does dr anitha teach").
+    - "get_course_instructors": User is asking *who* teaches a specific course.
+
+    **Student Info Intents:**
+    - "get_placement_start_info": User is asking when placements begin.
+    - "get_exam_registration_info": User is asking about makeup exams or backlog registration.
     - "get_lost_item_info": User is asking about losing an ID card or hall ticket.
-    
-    --- PLACEMENT INTENTS ---
-    - "get_placement_stats": User is asking for the *full report*, *all companies*, or *complete details*. This will send a PDF.
-    - "get_placement_summary": User is asking for *specific high-level stats* (e.g., highest salary, average salary, median salary, total students placed).
+    - "get_canteen_info": User is asking for information about the canteen.
+
+    **Placement Intents:**
+    - "get_placement_stats": User is asking for the *full report*, *all companies*, or *complete details*.
+    - "get_placements_info": User is asking about *contact info* for the placement office.
+    - "get_placement_summary": User is asking for *specific high-level stats* (e.g., highest salary, average salary).
     - "get_company_stats": User is asking for stats related to *one specific company*.
-    - "get_placement_count_by_type": User is asking *how many* companies of a certain type came (e.g., "how many dream companies", "total mass recruiters").
+    - "get_placement_count_by_type": User is asking *how many* companies of a certain type came.
     - "get_placement_count_by_ctc": User is asking *how many* students or companies got packages *above or below* a certain CTC.
     - "get_placement_companies_by_ctc": User is asking to *list* the companies *above or below* a certain CTC.
      
+    **Other Intents:**
     - "general_chat": User is making small talk, greeting, or asking a question not related to the database. (e.g., "yes", "no", "ok", "thanks").
     - "unknown": The user's intent is unclear or not covered.
     - "suggest_data": The user is suggesting new information to be added.
 
-    Extracted Entities:
-    - "faculty_name": The name of the faculty member (e.g., "Dr. Anitha R", "MNR", "SK").
+    --- ENTITY DEFINITIONS ---
+    - "faculty_name": The name of the faculty member (e.g., "Dr. Anitha R", "MNR", "SK", "principal").
     - "course_name": The name of a course (e.g., "Applied Physics", "CN", "TOC").
     - "course_code": The code for a course (e.g., "18CS45", "PHY101").
     - "company_name": The name of a company (e.g., "VISA", "JPMC", "Google").
     - "branch": The student branch (e.g., "CSE", "AI&ML", "ISE").
     - "year": The year of study (e.g., 1, 2, 3, 4).
     - "section": The class section (e.g., "A", "B").
-    - "day": The day of the week (e.g., "Monday").
+    - "day": The day of the week (e.g., "Monday", "today", "tomorrow").
     - "club_name": The name of the club (e.g., "NISB", "Robotics").
     - "hostel_name": The name of the hostel (e.g., "NIE North Men's Hostel").
-    - "scholarship_name": The name of the scholarship (e.g., "Merit Scholarship", "TVS Scholarship").
+    - "scholarship_name": The name of the scholarship (e.g., "Merit Scholarship").
     - "topic": A general topic (e.g., "ragging", "TechNIEks", "library notice").
-    
-    --- NEW LOCATION ENTITIES ---
-    - "location_name": A generic place the user wants to find (e.g., "canteen", "ground"). This is the fallback.
+    - "location_name": A generic place (e.g., "canteen", "ground", "library", "north campus").
     - "room_number": A specific room (e.g., "105", "210", "MB-1").
     - "lab_name": A specific lab (e.g., "ISE lab", "CSE labs").
-    - "office_name": A specific office (e.g., "principal office", "placement section", "hod office").
-
-    --- PLACEMENT ENTITIES ---
-    - "stat_type": The specific placement stat requested (e.g., "highest_ctc", "average_ctc", "median_ctc", "lowest_ctc", "total_selects", "total_companies").
-    - "ctc_type": The type of placement package (e.g., "Dream", "Mass", "Core", "Open Dream", "Startup").
+    - "office_name": A specific office (e.g., "principal office", "placement section").
+    - "stat_type": The specific placement stat requested (e.g., "highest_ctc", "average_ctc").
+    - "ctc_type": The type of placement package (e.g., "Dream", "Mass").
     - "ctc_amount": The CTC value in lakhs (e.g., 12, 8.5).
     - "ctc_operator": The comparison operator ("gt" for greater than, "lt" for less than).
-    
-    --- OTHER ENTITIES ---
     - "lost_item": The item the user lost (e.g., "id card", "hall ticket").
     - "time_of_day": A specific time mentioned by the user (e.g., "3pm", "10:00").
 
-    You must respond in JSON format only. Do not add any other text.
-    Handle spelling mistakes gracefully.
-    "hi", "hello", "thanks", "bye", "yes", "no", "yep", "nope", "ok" are "general_chat".
-    
-    --- NEW RULE ---
-    You must also ignore all honorifics like 'sir', 'mam', 'madam'. They are not part of the name.
-    --- END NEW RULE ---
+    --- RULES ---
+    1. You must respond in JSON format only. Do not add any other text.
+    2. Handle spelling mistakes gracefully.
+    3. "hi", "hello", "thanks", "bye", "yes", "no", "yep", "nope", "ok" are "general_chat".
+    4. Ignore all honorifics like 'sir', 'mam', 'madam'. They are not part of the name.
+    5. **CRITICAL:** "today" and "tomorrow" are valid values for the "day" entity.
+    6. **CRITICAL:** If a query asks "where is [faculty]" and includes a day (like "today" or "Monday"), the intent is `get_faculty_location_on_day`.
+    7. **CRITICAL:** If a query asks "is [faculty] available/on campus" and includes a day (like "today" or "Monday"), the intent is `get_faculty_campus_availability` **AND YOU MUST EXTRACT THE "day" ENTITY.**    8. **CRITICAL:** If a query asks "where is [faculty]" and does *NOT* include a day, the intent is `get_faculty_location` (for their static office).
+    8. **CRITICAL:** If a query asks "where is [faculty]" and does *NOT* include a day, the intent is `get_faculty_location` (for their static office).
+    9. **CRITICAL (NEW):** If the user's query contains two different questions (e.g., "where is X and when is Y free"), YOU MUST ONLY classify the **first** question. Ignore the second part.
+    --- EXAMPLES ---
 
     Example for "can i get timetable for cse a 1st year on monday":
     {{"intent": "get_timetable", "entities": {{"branch": "CSE", "year": 1, "section": "A", "day": "Monday"}}}}
@@ -242,8 +254,16 @@ async def get_query_intent(user_query):
     Example for "show me the schedule for 18CS45":
     {{"intent": "get_timetable", "entities": {{"course_code": "18CS45"}}}} 
 
+    --- NEW CLUB EXAMPLES ---
     Example for "what clubs are there":
     {{"intent": "get_club_info", "entities": {{}}}}
+
+    Example for "tell me about the onyx club":
+    {{"intent": "get_club_info", "entities": {{"club_name": "Onyx"}}}}
+
+    Example for "do you have info on robotics club":
+    {{"intent": "get_club_info", "entities": {{"club_name": "Robotics"}}}}
+    --- END NEW CLUB EXAMPLES ---
 
     --- NEW LOCATION EXAMPLES ---
     Example for "show me the college map":
@@ -281,6 +301,15 @@ async def get_query_intent(user_query):
     
     Example for "location of scholarship section":
     {{"intent": "get_location", "entities": {{"office_name": "scholarship"}}}}
+
+    Example for "where is the stationary shop":
+    {{"intent": "get_location", "entities": {{"office_name": "stationary"}}}}
+
+    Example for "where does the principal usually sit":
+    {{"intent": "get_location", "entities": {{"office_name": "principal"}}}}
+
+    Example for "where is the principal office":
+    {{"intent": "get_location", "entities": {{"office_name": "principal"}}}}
     
     Example for "where is the auditorium":
     {{"intent": "get_location", "entities": {{"office_name": "auditorium"}}}}
@@ -288,6 +317,26 @@ async def get_query_intent(user_query):
     Example for "where are the hods":
     {{"intent": "get_location", "entities": {{"office_name": "hod"}}}}
     --- END NEW LOCATION EXAMPLES ---
+    --- NEW LOCATION EXAMPLES ---
+    ...
+    Example for "where is the stationary shop":
+    {{"intent": "get_location", "entities": {{"office_name": "stationary"}}}}
+
+    Example for "where is the 'stationary'?":
+    {{"intent": "get_location", "entities": {{"office_name": "stationary"}}}}
+
+    Example for "whats the lib location":
+    {{"intent": "get_location", "entities": {{"location_name": "library"}}}}
+    ...
+    --- END NEW LOCATION EXAMPLES ---
+    --- FACULTY AVAILABILITY EXAMPLES ---
+    ...
+    Example for "is sk free tomorrow":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "SK", "day": "tomorrow"}}}}
+
+    Example for "where is the principal's office and when is he free":
+    {{"intent": "get_location", "entities": {{"office_name": "principal"}}}}
+    --- END FACULTY AVAILABILITY EXAMPLES ---
 
     --- PLACEMENT EXAMPLES ---
     Example for "show me all placement stats":
@@ -298,6 +347,8 @@ async def get_query_intent(user_query):
 
     Example for "list of all companies that visited":
     {{"intent": "get_placement_stats", "entities": {{}}}}
+
+
 
     Example for "what was the highest salary":
     {{"intent": "get_placement_summary", "entities": {{"stat_type": "highest_ctc"}}}}
@@ -370,7 +421,27 @@ async def get_query_intent(user_query):
     
     Example for "which ones":
     {{"intent": "get_placement_companies_by_ctc", "entities": {{}}}}
+    
+    Example for "can you list the companies":
+    {{"intent": "get_placement_companies_by_ctc", "entities": {{}}}}
     --- END PLACEMENT EXAMPLES ---
+
+    --- NEW HELP/ESCALATION EXAMPLES ---
+    Example for "help me":
+    {{"intent": "get_help_escalation", "entities": {{}}}}
+    
+    Example for "this is not working":
+    {{"intent": "get_help_escalation", "entities": {{}}}}
+    
+    Example for "i need to talk to a person":
+    {{"intent": "get_help_escalation", "entities": {{}}}}
+
+    Example for "you are a stupid bot":
+    {{"intent": "get_help_escalation", "entities": {{}}}}
+
+    Example for "i am lost":
+    {{"intent": "get_help_escalation", "entities": {{}}}}
+    --- END HELP EXAMPLES ---
 
     Example for "how to check attendance":
     {{"intent": "get_student_portal_info", "entities": {{}}}}
@@ -396,6 +467,9 @@ async def get_query_intent(user_query):
 
     Example for "what to do if i lose my hall ticket":
     {{"intent": "get_lost_item_info", "entities": {{"lost_item": "hall ticket"}}}}
+
+    Example for "can u tell the nie canteen food menu":
+    {{"intent": "get_canteen_info", "entities": {{}}}}
     --- END STUDENT INFO EXAMPLES ---
 
     --- NEW DRESS CODE EXAMPLES ---
@@ -423,7 +497,7 @@ async def get_query_intent(user_query):
     {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
     --- END FACULTY COURSES EXAMPLES ---
 
-    --- FACULTY AVAILABILITY EXAMPLES ---
+    --- FACULTY AVAILABILITY (FREE/BUSY) EXAMPLES ---
     Example for "when is Dr Vanamala free on monday":
     {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr Vanamala", "day": "Monday"}}}}
 
@@ -433,16 +507,99 @@ async def get_query_intent(user_query):
     Example for "is principal sir free":
     {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
 
-    Example for "what is dr smith's schedule on friday":
-    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "dr smith", "day": "Friday"}}}}
+    Example for "is mnr free today":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "MNR", "day": "today"}}}}
+    
+    Example for "when is sk free tomorrow":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "SK", "day": "tomorrow"}}}}
+    --- END FACULTY AVAILABILITY EXAMPLES ---
+
+    --- NEW: FACULTY SCHEDULE (CLASS LIST) EXAMPLES ---
+    Example for "what is dr anitha's schedule on monday":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "Dr Anitha", "day": "Monday"}}}}
+    
+    Example for "show me mnr's schedule for today":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "MNR", "day": "today"}}}}
+    
+    Example for "what classes does sk have tomorrow":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "SK", "day": "tomorrow"}}}}
+    
+    Example for "what is the principal's schedule":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "Dr.Rohini Nagapadma"}}}}
     
     Example for "show me all of dr anitha's classes":
     {{"intent": "get_timetable", "entities": {{"faculty_name": "dr anitha"}}}}
-    --- END FACULTY AVAILABILITY EXAMPLES ---
+    --- END FACULTY SCHEDULE EXAMPLES ---
+
+    --- NEW: FACULTY DYNAMIC LOCATION (LOCATION ON DAY) EXAMPLES ---
+    Example for "where can i find dr anitha on monday":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "Dr Anitha", "day": "Monday"}}}}
+    
+    Example for "where is mnr today":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "MNR", "day": "today"}}}}
+    
+    Example for "location of dr vanamala on tuesday":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "Dr Vanamala", "day": "Tuesday"}}}}
+    
+    Example for "where is sk now":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "SK", "day": "today"}}}}
+    
+    Example for "where is sk's office":
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "SK"}}}}
+    
+    Example for "where is sk":
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "SK"}}}}
+    --- END FACULTY DYNAMIC LOCATION EXAMPLES ---
+
+    --- NEW: FACULTY CAMPUS AVAILABILITY (ACTIVE DAYS) EXAMPLES ---
+    Example for "what days is dr anitha on campus":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "Dr Anitha"}}}}
+    
+    Example for "when is mnr in college":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "MNR"}}}}
+    
+    Example for "is sk in north campus this week":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "SK"}}}}
+    
+    Example for "is sk available in campus today":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "SK", "day": "today"}}}}
+
+    Example for "is sk avialable in north campus today":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "SK", "location_name": "north campus", "day": "today"}}}}
+
+    Example for "is sk avialable in north campus on monday":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "SK", "location_name": "north campus", "day": "Monday"}}}}
+
+    Example for "is cnc available in north campus today":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "CN Chinnaswamy", "location_name": "north campus", "day": "today"}}}}
+    
+    Example for "is principal in college tomorrow":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "Dr.Rohini Nagapadma", "day": "tomorrow"}}}}
+    --- END FACULTY CAMPUS AVAILABILITY EXAMPLES ---
+
+    --- NEW: BREAK TIME EXAMPLES ---
+    Example for "what time is break":
+    {{"intent": "get_break_info", "entities": {{}}}}
+    
+    Example for "when is lunch break":
+    {{"intent": "get_break_info", "entities": {{}}}}
+    
+    Example for "what are the break timings":
+    {{"intent": "get_break_info", "entities": {{}}}}
+    --- END BREAK TIME EXAMPLES ---
     
     --- FOLLOW-UP EXAMPLES (FOR SLOT-FILLING) ---
     Example for "what about for A section":
     {{"intent": "unknown", "entities": {{"section": "A"}}}}
+
+    Example for "and for cse b":
+    {{"intent": "unknown", "entities": {{"branch": "CSE", "section": "B"}}}}
+
+    Example for "what about mnr":
+    {{"intent": "unknown", "entities": {{"faculty_name": "Ms. Meghana NR"}}}}
+    
+    Example for "what about sk":
+    {{"intent": "unknown", "entities": {{"faculty_name": "Dr. S Kuzhalvaimozhi"}}}}
     
     Example for "and for cse b":
     {{"intent": "unknown", "entities": {{"branch": "CSE", "section": "B"}}}}
@@ -452,6 +609,22 @@ async def get_query_intent(user_query):
 
     Example for "monday":
     {{"intent": "unknown", "entities": {{"day": "Monday"}}}}
+    
+    Example for "today":
+    {{"intent": "unknown", "entities": {{"day": "today"}}}}
+    
+    Example for "and for tomorrow":
+    {{"intent": "unknown", "entities": {{"day": "tomorrow"}}}}
+
+    
+    Example for "what about for the week":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"day": "all"}}}}
+
+    Example for "where can i find her":
+    {{"intent": "get_faculty_location_on_day", "entities": {{}}}}
+    
+    Example for "where can i find him":
+    {{"intent": "get_faculty_location_on_day", "entities": {{}}}}
 
     Example for "yes":
     {{"intent": "general_chat", "entities": {{}}}}
@@ -462,11 +635,14 @@ async def get_query_intent(user_query):
     
     --- INITIALS EXAMPLES ---
     Example for "who is mnr":
-    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Meghana NR"}}}}
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "Ms. Meghana NR"}}}}
     
     Example for "where is mnr's office":
-    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Meghana NR"}}}}
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "Ms. Meghana NR"}}}}
     
+    Example for "is mnr available on north campus on monday":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "Ms. Meghana NR", "location_name": "north campus", "day": "Monday"}}}}
+
     Example for "is sk free on monday":
     {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr S Kuzhalvaimozhi", "day": "Monday"}}}}
     
@@ -481,6 +657,31 @@ async def get_query_intent(user_query):
     
     Example for "who teaches toc":
     {{"intent": "get_course_instructors", "entities": {{"course_name": "Theory of Computation"}}}}
+
+
+    Example for "TOC prof?":
+    {{"intent": "get_course_instructors", "entities": {{"course_name": "Theory of Computation"}}}}
+
+    Example for "who is cnc":
+    {{"intent": "get_faculty_info", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
+
+    Example for "where is cnc":
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
+
+    Example for "is cnc available on monday":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "CN Chinnaswamy", "day": "Monday"}}}}
+
+    Example for "what is cnc's schedule for today":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "CN Chinnaswamy", "day": "today"}}}}
+    
+    Example for "where is cnc tomorrow":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "CN Chinnaswamy", "day": "tomorrow"}}}}
+    
+    Example for "what days is cnc on campus":
+    {{"intent": "get_faculty_campus_availability", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
+
+    Example for "what does cnc teach":
+    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
     --- END INITIALS EXAMPLES ---
 
     Example for "thanks":
@@ -525,7 +726,10 @@ async def generate_final_response(user_query, db_results):
     Uses Gemini to generate a natural language response based on the query and DB results.
     This is used for 'general_chat' or when DB results are found.
     """
-    simple_queries = ['hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'bye', 'goodbye', '?']
+    simple_queries = [
+        'hi', 'hello', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'bye', 
+        'goodbye', '?', 'yes', 'no', 'yep', 'nope', 'ya', 'nah','done'
+    ]
     is_simple_query = user_query.lower().strip() in simple_queries or len(user_query.strip()) < 4
 
     suggestion_text = ""
@@ -544,9 +748,13 @@ async def generate_final_response(user_query, db_results):
     if is_simple_query:
         system_prompt = f"""
         You are a friendly and helpful college chatbot assistant.
-        - The user has sent a simple greeting or a very short, unclear query (like 'yes' or 'no').
-        - Respond naturally and conversationally (e.g., "Hello!", "How can I help?", "You're welcome!", "Okay.").
-        - Do NOT add any suggestion links or ask the user to rephrase, just be polite.
+        - The user has sent a simple greeting or a very short, unclear query (like 'yes', 'no', 'ok', 'thanks').
+        - Your task is to provide a brief, one-word or one-sentence acknowledgment.
+        - If they say "hello", say "Hello! How can I help?".
+        - If they say "thanks", say "You're welcome!".
+        - If they say "ok", "yes", or "no" (as a standalone statement), just acknowledge it with "Okay!" or "Got it."
+        - **CRITICAL:** Do NOT try to re-engage them or ask "What can I help you with today?". Just give the simple acknowledgment.
+        - Do NOT add any suggestion links.
         """
     elif db_results:
         # NEW: This is the prompt for when we HAVE data from the database.
@@ -554,8 +762,11 @@ async def generate_final_response(user_query, db_results):
         You are a friendly and helpful college chatbot assistant.
         - Your job is to answer the user's query based *only* on the "Database Results" provided.
         - Answer the question directly and naturally.
-        - If the Database Results contain the exact answer, provide it. (e.g., User asks "is id card compulsory?", Data says "You must always carry your ID CARD").
-        - If the Database Results are relevant but don't *specifically* answer the question, summarize the relevant rules (e.g., if the user asks "are jeans allowed?" and the data lists "Jeans Pants" under "Allowed").
+        - Summarize the information from the database results to answer the user's query.
+        - For example, if the user asks "tell me about nie nisb", and the data is:
+          `{{'name': 'NISB', 'description': 'The path for... IT projects', 'contact_person': 'Club Coordinator', 'contact_phone': '9876500001'}}`
+        - A good answer would be:
+          "NISB is associated with the Master of Computer Applications (MCA) program. It is described as the path for those who dream of developing innovative software, managing vast databases, or leading IT projects. You can reach the Club Coordinator at 9876500001 for contact."
         - Do not make up information.
         - Format the answer clearly.
         """

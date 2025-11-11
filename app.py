@@ -7,7 +7,7 @@ import json
 import logging
 import asyncio # For async operations
 import datetime # For timedelta conversion in formatting
-# --- Removed load_dotenv from here ---
+import pytz # --- NEW: For timezone-aware date/time ---
 from flask import Flask, request, render_template, jsonify
 from twilio.twiml.messaging_response import MessagingResponse
 
@@ -66,8 +66,20 @@ LOST_ITEM_INFO = {
         "5. Submit the receipt to the college office."
     )
 }
-# --- END NEW STATIC ANSWERS ---
 
+# --- NEW: Static Break Info ---
+BREAK_INFO = (
+    "Here are the official break timings:\n"
+    "• **Short Break:** 11:00 AM to 11:30 AM\n"
+    "• **Lunch Break:** 01:30 PM to 02:30 PM"
+)
+# --- END NEW STATIC ANSWERS ---
+# --- NEW: Help/Escalation Info ---
+HELP_ESCALATION_INFO = (
+    "I'm sorry if I'm not being helpful. I am still learning and can't answer every question.\n\n"
+    "If you are on campus and need immediate help, you can visit the **Main Office** in the **Ramanujacharya Block**.\n\n"
+    "If you have a specific technical or academic question, please try asking your **Proctor** or a **faculty member**."
+)
 
 # --- NEW: Faculty Availability Helpers ---
 
@@ -144,12 +156,16 @@ def calculate_free_slots(busy_slots):
 def is_positive_reply(query):
     """Checks if a query is a 'yes' answer."""
     query_lower = query.lower().strip()
-    return query_lower in ['yes', 'yep', 'ya', 'correct', 'y', 'that is right', "that's right", 'ok', 'yes please']
+    return query_lower in ['yes', 'yep', 'ya', 'correct', 'y', 'that is right', "that's right", 'ok', 'yes please','yeah','positive','yup', 'yessir', 'affirmative', 'haan',
+        'ha', 's', 'es', 'ye']
 
 def is_negative_reply(query):
     """Checks if a query is a 'no' answer."""
     query_lower = query.lower().strip()
-    return query_lower in ['no', 'nope', 'n', 'wrong', 'that is wrong', "that's wrong", 'no thanks']
+    return query_lower in [
+        'no', 'nope', 'n', 'wrong', 'that is wrong', "that's wrong", 'no thanks',
+        'nah', 'negative', 'naa', 'na'
+    ]
 
 def is_similar_faculty_name(name_from_user, name_from_db):
     """
@@ -176,9 +192,38 @@ def is_similar_faculty_name(name_from_user, name_from_db):
 
 # --- NEW: Entity Normalizer ---
 def _normalize_entities(entities):
-    """Normalizes synonyms like CS/CSE and IS/ISE across all entities."""
+    """
+    Normalizes synonyms like CS/CSE and IS/ISE across all entities.
+    --- NEW: Also resolves 'today' and 'tomorrow' ---
+    """
     if not entities:
         return entities
+        
+    # --- NEW: Resolve today/tomorrow ---
+    if entities.get('day'):
+        day_lower = entities['day'].lower()
+        try:
+            # Use 'Asia/Kolkata' for IST
+            IST = pytz.timezone('Asia/Kolkata')
+            now = datetime.datetime.now(IST)
+            
+            if day_lower == 'today':
+                entities['day'] = now.strftime('%A')
+                logging.info(f"Resolved 'today' to '{entities['day']}'")
+            elif day_lower == 'tomorrow':
+                tomorrow = now + datetime.timedelta(days=1)
+                entities['day'] = tomorrow.strftime('%A')
+                logging.info(f"Resolved 'tomorrow' to '{entities['day']}'")
+        except Exception as e:
+            logging.error(f"Error resolving today/tomorrow: {e}. Defaulting to system time.")
+            # Fallback to server's local time if pytz fails
+            now = datetime.datetime.now()
+            if day_lower == 'today':
+                entities['day'] = now.strftime('%A')
+            elif day_lower == 'tomorrow':
+                tomorrow = now + datetime.timedelta(days=1)
+                entities['day'] = tomorrow.strftime('%A')
+    # --- END NEW ---
     
     # Normalize branch
     if entities.get('branch'):
@@ -203,6 +248,10 @@ def _normalize_entities(entities):
             entities['course_name'] = 'CSE'
         if course_upper == 'IS':
             entities['course_name'] = 'ISE'
+    
+    # --- NEW: Normalize course code (remove spaces and hyphens) ---
+    if entities.get('course_code'):
+        entities['course_code'] = entities['course_code'].replace(" ", "").replace("-", "")
             
     return entities
 # --- END NEW Normalizer ---
@@ -220,6 +269,7 @@ class DialogueManager:
         self.required_slots = []
         self.filled_slots = {}
         self.questions = {} # Stores the question to ask for each slot
+        self.intent_family = None # --- NEW: For grouping related intents ---
         
         # This is for special cases like faculty spell-check
         self.pending_action = None 
@@ -228,9 +278,7 @@ class DialogueManager:
         # This map defines the "forms" for each intent
         self.intent_forms = {
             "get_timetable": {
-                # Define *all* possible slots
                 "all_slots": ["day", "branch", "section", "year", "faculty_name", "course_name", "course_code"],
-                # Define the *minimum* required to ask
                 "required_slots": ["day"], # We'll ask for day first
                 "questions": {
                     "day": "Sure, which day of the week?",
@@ -238,15 +286,59 @@ class DialogueManager:
                     "section": "Which section?",
                     "year": "Which year?"
                 }
-                # "stay_open" is False by default, which is correct for this intent
             },
+            # --- NEW: For listing classes ---
+            "get_faculty_schedule": {
+                "all_slots": ["faculty_name", "day"],
+                "required_slots": ["faculty_name", "day"],
+                "questions": {
+                    "faculty_name": "Which faculty member's schedule are you asking about?",
+                    "day": "Sure, which day of the week?"
+                },
+                "stay_open": True,
+                "family": "faculty_availability"
+            },# --- NEW: For listing classes ---
+            "get_faculty_schedule": {
+                "all_slots": ["faculty_name", "day"],
+                "required_slots": ["faculty_name", "day"],
+                "questions": {
+                    "faculty_name": "Which faculty member's schedule are you asking about?",
+                    "day": "Sure, which day of the week?"
+                },
+                "stay_open": True,
+                "family": "faculty_availability"
+            },
+            # --- MODIFIED: For listing free slots ---
             "get_faculty_availability": {
                 "all_slots": ["faculty_name", "day", "time_of_day"],
                 "required_slots": ["faculty_name", "day"],
                 "questions": {
                     "faculty_name": "Which faculty member are you asking about?",
                     "day": "Sure, which day of the week?"
-                }
+                },
+                "stay_open": True,
+                "family": "faculty_availability"
+            },
+            # --- NEW: For dynamic location ---
+            "get_faculty_location_on_day": {
+                "all_slots": ["faculty_name", "day"],
+                "required_slots": ["faculty_name", "day"],
+                "questions": {
+                    "faculty_name": "Which faculty member are you looking for?",
+                    "day": "For which day?"
+                },
+                "stay_open": True,
+                "family": "faculty_availability" # Add to same family
+            },
+            # --- NEW: For campus availability ---
+            "get_faculty_campus_availability": {
+                "all_slots": ["faculty_name", "location_name","day"],
+                "required_slots": ["faculty_name"],
+                "questions": {
+                    "faculty_name": "Which faculty member's availability are you asking about?"
+                },
+                "stay_open": True,
+                "family": "faculty_availability"
             },
             "get_course_instructors": {
                 "all_slots": ["course_name", "course_code", "branch", "section"],
@@ -256,7 +348,8 @@ class DialogueManager:
                     "branch": "Which branch?",
                     "section": "Which section?"
                 },
-                "stay_open": True # --- This intent allows follow-ups ---
+                "stay_open": True,
+                "family": "course_info" # --- NEW ---
             },
             "get_placement_companies_by_ctc": {
                 "all_slots": ["ctc_operator", "ctc_amount"],
@@ -265,7 +358,8 @@ class DialogueManager:
                     "ctc_operator": "Are you looking for packages 'more than' or 'less than' a certain amount?",
                     "ctc_amount": "What is the CTC amount (in LPA)?"
                 },
-                "stay_open": True # --- This intent allows follow-ups ---
+                "stay_open": True,
+                "family": "placement_ctc" # --- NEW ---
             },
             "get_placement_count_by_ctc": {
                 "all_slots": ["ctc_operator", "ctc_amount"],
@@ -274,7 +368,8 @@ class DialogueManager:
                     "ctc_operator": "Are you looking for packages 'more than' or 'less than' a certain amount?",
                     "ctc_amount": "What is the CTC amount (in LPA)?"
                 },
-                "stay_open": True # --- This intent allows follow-ups ---
+                "stay_open": True,
+                "family": "placement_ctc" # --- NEW ---
             }
         }
 
@@ -288,6 +383,19 @@ class DialogueManager:
             return False
         return self.intent_forms[self.current_intent].get("stay_open", False)
 
+    # --- NEW: Check if a new intent belongs to the same family ---
+    def is_in_family(self, new_intent):
+        """Checks if a new intent is in the same family as the current one."""
+        if not self.is_in_conversation():
+            return False
+        
+        current_family = self.intent_forms[self.current_intent].get("family")
+        if not current_family:
+            return False # Current intent has no family
+            
+        new_intent_family = self.intent_forms.get(new_intent, {}).get("family")
+        return current_family == new_intent_family
+
     def start_conversation(self, intent, entities):
         """Starts a new slot-filling conversation."""
         if intent not in self.intent_forms:
@@ -297,6 +405,7 @@ class DialogueManager:
         self.required_slots = list(self.intent_forms[intent]["required_slots"]) # Make a copy
         self.questions = self.intent_forms[intent]["questions"]
         self.filled_slots = {}
+        self.intent_family = self.intent_forms[intent].get("family") # --- NEW ---
 
         # Fill any slots we *already* got from the first query
         return self.fill_slots(entities)
@@ -321,11 +430,9 @@ class DialogueManager:
         # If user provides code, it can satisfy the 'course_name' requirement
         if self.current_intent == 'get_course_instructors':
             if 'course_code' in self.filled_slots:
-                # If we have a code, we don't *need* a name
                 if 'course_name' in self.required_slots:
                     self.required_slots.remove('course_name')
             if 'course_name' in self.filled_slots:
-                # if we have a name, we don't *need* a code
                 if 'course_code' in self.required_slots:
                     self.required_slots.remove('course_code')
 
@@ -349,6 +456,7 @@ class DialogueManager:
         self.required_slots = []
         self.filled_slots = {}
         self.questions = {}
+        self.intent_family = None # --- NEW ---
         self.pending_action = None
         self.action_context = {}
 
@@ -431,7 +539,7 @@ def format_timetable_response(results, entities):
         if time_slot != current_time:
             current_time = time_slot
 
-        details = [f"{time_slot}: {row['course_name'] or 'N/A'}"]
+        details = [f"**{time_slot}: {row['course_name'] or 'N/A'}**"] # --- Made this bold ---
         if row.get('faculty_name'):
             details.append(f"({row['faculty_name']})")
         location_parts = [part for part in [row.get('room_no'), row.get('location')] if part]
@@ -441,9 +549,13 @@ def format_timetable_response(results, entities):
             details.append(f"[{row['class_type']}]")
         if row.get('lab_batch'):
             details.append(f"(Batch {row['lab_batch']})")
+            
+        # --- NEW: Add Branch/Section if it's a faculty/course query ---
+        if (faculty_name or course_name or course_code) and not (branch and section):
+             details.append(f"[{row.get('branch', 'N/A')} - {row.get('section', 'N/A')}]")
 
-        response_lines.append("\n".join(details))
-        response_lines.append("") # Add a blank line for spacing
+        response_lines.append(" ".join(details)) # --- Join details on one line ---
+        # response_lines.append("") # Add a blank line for spacing (REMOVED FOR COMPACTNESS)
 
 
     return "\n".join(response_lines).strip()
@@ -500,7 +612,7 @@ def format_faculty_location(results):
         if location:
             return f"The office location for **{name}** is **{location}**."
         else:
-            return f"I found **{name}**, but I'm sorry, their office location is not in my records right now."
+            return f"I found **{name}**, but I'm sorry, their static office location is not in my records right now."
             
     else:
         response_lines = [f"I found {len(results)} potential matches:"]
@@ -549,12 +661,19 @@ def format_course_instructors(results, entities):
     # --- Default: List all found instructors (initial query) ---
     response_lines = [f"Here are the instructors for **{course_name} ({course_code})**:\n"]
     
+    instructors = {} # --- Use a dict to group by faculty name ---
     for row in results:
         name = row.get('faculty_name', 'N/A')
         branch = row.get('branch', 'N/A')
         section = row.get('section', 'N/A')
-        response_lines.append(f"• **{name}** teaches **{branch} - {section}** section.")
-    
+        
+        if name not in instructors:
+            instructors[name] = []
+        instructors[name].append(f"{branch}-{section}")
+        
+    for name, sections in instructors.items():
+        response_lines.append(f"• **{name}** teaches **{', '.join(sections)}**")
+
     return "\n".join(response_lines)
 
 def format_placement_summary(results, entities):
@@ -759,8 +878,11 @@ def format_specific_location(entities):
             elif floor_char == '4':
                 floor_text = "3rd Floor"
             else:
-                # Fallback for other floors, though less likely
-                floor_text = f"{int(floor_char)-1}th Floor"
+                # This is the fix. Handle invalid floors.
+                response_text = f"I'm not sure about room {room_str}. Rooms in the Ramanujacharya Block are on the Ground, 1st, 2nd, and 3rd floors (room numbers starting with 1, 2, 3, or 4)."
+                # Return immediately
+                return {'text': response_text, 'media_url': None}
+                
             response_text = f"Room {room_str} is on the **{floor_text}** of the **Ramanujacharya Block**."
             # --- END OF CORRECTED LOGIC ---
 
@@ -781,21 +903,25 @@ def format_specific_location(entities):
     
     elif office_name:
         office = office_name.lower()
-        if office == 'principal' or office == 'academic' or office == 'examination' or office == 'scholarship' or office == 'fees':
+        
+        # --- THIS IS THE CORRECTED BLOCK ---
+        if office == 'principal' or office == 'dean' or office == 'academic' or office == 'examination' or office == 'scholarship' or office == 'fees':
             # Capitalize the office name
             office_display = office.replace("principal", "Principal's").capitalize()
             if office == 'academic': office_display = "Academic Cell"
             if office == 'examination': office_display = "Examination Section"
+            if office == 'dean': office_display = "Dean's Office" # Added this line
                 
             response_text = f"The **{office_display}** is on the **Ground Floor** of the **Ramanujacharya Block**."
+        # --- END OF CORRECTED BLOCK ---
         
         elif office == 'placement' or office == 'admissions' or office == 'stationary' or office == 'auditorium':
             office_display = office.capitalize()
             if office == 'placement': office_display = "Placement Office"
             if office == 'admissions': office_display = "Admissions Section"
+            if office == 'stationary': office_display = "Stationary Shop" # Add this line
                 
             response_text = f"The **{office_display}** is on the **Ground Floor** of the **Shankaracharya Block**."
-        
         elif office == 'hod':
             response_text = "All HOD (Head of Department) offices are located in the **Ramanujacharya Block**."
     
@@ -814,6 +940,78 @@ def format_specific_location(entities):
     return map_data
 
 # --- END NEW Location Formatter ---
+
+# --- NEW: Faculty Schedule/Location Formatters ---
+
+def format_faculty_class_schedule(results, faculty_name, day):
+    """Formats the faculty's class schedule for a specific day."""
+    if not results:
+        return f"**{faculty_name}** has no classes scheduled on {day.capitalize()}."
+
+    response_lines = [f"Here is the class schedule for **{faculty_name}** on {day.capitalize()}:\n"]
+    
+    for row in results:
+        start_time_str = row['start_time'].strftime("%I:%M %p") if isinstance(row['start_time'], datetime.time) else "N/A"
+        end_time_str = row['end_time'].strftime("%I:%M %p") if isinstance(row['end_time'], datetime.time) else "N/A"
+        time_slot = f"{start_time_str} - {end_time_str}"
+        
+        course = row.get('course_name', 'N/A')
+        branch_sec = f"{row.get('branch', 'N/A')} - {row.get('section', 'N/A')}"
+        location_parts = [part for part in [row.get('room_no'), row.get('location')] if part]
+        location = " - ".join(location_parts) or "N/A"
+
+        response_lines.append(f"• **{time_slot}**: {course} ({branch_sec}) @ **{location}**")
+
+    return "\n".join(response_lines)
+
+def format_faculty_location_on_day(results, faculty_name, day):
+    """Formats the faculty's dynamic location based on their class schedule."""
+    if not results:
+        return (
+            f"**{faculty_name}** has no classes scheduled in the North Campus on {day.capitalize()}. "
+            f"They might be available in the South Campus."
+        )
+
+    response_lines = [f"On {day.capitalize()}, **{faculty_name}** has classes at these locations:\n"]
+    
+    locations_by_time = {}
+    for row in results:
+        start_time_str = row['start_time'].strftime("%I:%M %p") if isinstance(row['start_time'], datetime.time) else "N/A"
+        location_parts = [part for part in [row.get('room_no'), row.get('location')] if part]
+        location = " - ".join(location_parts) or "N/A"
+        
+        if location not in locations_by_time:
+            locations_by_time[location] = []
+        locations_by_time[location].append(start_time_str)
+
+    for location, times in locations_by_time.items():
+        response_lines.append(f"• **{location}** (at {', '.join(times)})")
+        
+    response_lines.append(f"\nYou can also check their static office for availability.")
+    return "\n".join(response_lines)
+
+def format_faculty_campus_availability(results, faculty_name):
+    """Formats the list of days a faculty is on campus."""
+    if not results:
+        return (
+            f"**{faculty_name}** has no classes scheduled in the North Campus (Mon-Fri). "
+            f"They are likely available in the South Campus."
+        )
+        
+    days = [row['day_of_week'] for row in results]
+    
+    if len(days) == 5:
+        day_str = "all week (Monday to Friday)"
+    else:
+        day_str = ", ".join(days)
+        
+    return (
+        f"**{faculty_name}** has classes scheduled in the **North Campus** on: **{day_str}**."
+        f"\nOn other weekdays, they are likely available in the South Campus."
+    )
+
+# --- END NEW Formatters ---
+
 
 # --- Core Message Processing Logic ---
 
@@ -839,8 +1037,14 @@ async def process_message(user_query, user_id):
     try:
         # --- Pre-Filter (This is a good cost-saving measure to keep) ---
         query_lower = user_query.lower().strip()
-        simple_greetings = ['hi', 'hello', 'hey', 'heyy', 'hii']
-        simple_thanks = ['thanks', 'thank you', 'thx', 'thankyou']
+        simple_greetings = [
+            'hi', 'hello', 'hey', 'heyy', 'hii', 'helo', 'hie', 'yo', 
+            'sup', 'wassup', 'whatsup', 'hlo'
+        ]
+        simple_thanks = [
+            'thanks', 'thank you', 'thx', 'thankyou', 'ty', 'tq', 
+            'thnks', 'thanku', 'thnx'
+        ]        
         simple_bye = ['bye', 'goodbye', 'see ya']
 
         if query_lower in simple_greetings:
@@ -873,10 +1077,18 @@ async def process_message(user_query, user_id):
         intent = intent_data.get('intent', 'unknown')
         entities = intent_data.get('entities', {})
         
-        # --- NEW: Step 1.1 - Normalize Entities ---
+        # --- NEW: Step 1.1 - Normalize Entities (Handles 'today'/'tomorrow') ---
         entities = _normalize_entities(entities)
         logging.info(f"Got Intent: {intent}, Normalized Entities: {entities}")
         # --- END NEW ---
+        # --- BUG 1 FIX: Intent Override ---
+        # If Gemini classifies "is [faculty] available" as a location query,
+        # we override it to be an availability query.
+        query_lower_for_check = user_query.lower().strip()
+        if intent == 'get_faculty_location_on_day' and (query_lower_for_check.startswith('is ') or ' available' in query_lower_for_check):
+            logging.warning(f"Intent override: Changing 'get_faculty_location_on_day' to 'get_faculty_campus_availability' based on query: '{user_query}'")
+            intent = 'get_faculty_campus_availability'
+        # --- END BUG 1 FIX ---
 
         # --- Step 1.5: Handle Special Actions (like Faculty Spell-Check) ---
         # This runs *before* the dialogue manager
@@ -899,7 +1111,59 @@ async def process_message(user_query, user_id):
                 manager.reset() # Unrelated query, reset
                 # Let the new intent/entities be processed
         
+        # --- BUG 1 FIX: Handler for offering faculty details ---
+        elif manager.pending_action == 'offer_faculty_details':
+            context = manager.action_context
+            faculty_name = context.get('faculty_name')
+            day = context.get('day')
+            
+            # --- THIS LOGIC IS NEW AND MORE ROBUST ---
+            # Check if user wants free slots
+            if 'free' in user_query.lower() or intent == 'get_faculty_availability':
+                logging.info("Using 'offer_faculty_details' (Free Slots) memory.")
+                intent = 'get_faculty_availability'
+                entities = {'faculty_name': faculty_name, 'day': day, 'faculty_name_confirmed': True}
+                manager.reset()
+            
+            # Check if user wants class schedule
+            elif 'schedule' in user_query.lower() or 'class' in user_query.lower() or intent == 'get_faculty_schedule':
+                logging.info("Using 'offer_faculty_details' (Schedule) memory.")
+                intent = 'get_faculty_schedule'
+                entities = {'faculty_name': faculty_name, 'day': day, 'faculty_name_confirmed': True}
+                manager.reset()
+
+            # Check if user wants their location
+            elif 'where' in user_query.lower() or 'find' in user_query.lower() or 'location' in user_query.lower() or intent == 'get_faculty_location_on_day':
+                logging.info("Using 'offer_faculty_details' (Location) memory.")
+                intent = 'get_faculty_location_on_day'
+                entities = {'faculty_name': faculty_name, 'day': day, 'faculty_name_confirmed': True}
+                manager.reset()
+            
+            # Check for simple "yes" (like "yeah") - default to free slots
+            elif is_positive_reply(user_query):
+                logging.info("Using 'offer_faculty_details' (Positive) memory. Defaulting to free slots.")
+                intent = 'get_faculty_availability'
+                entities = {'faculty_name': faculty_name, 'day': day, 'faculty_name_confirmed': True}
+                manager.reset()
+                
+            elif is_negative_reply(user_query):
+                logging.info("Using 'offer_faculty_details' (Negative) memory.")
+                manager.reset()
+                bot_response_dict['text'] = "Okay, sounds good! Let me know if you need anything else."
+                return bot_response_dict
+            
+            else:
+                # Unrelated query, reset and continue
+                logging.info("Unrelated query. Resetting 'offer_faculty_details' state.")
+                manager.reset()
+
         elif manager.pending_action == 'clarify_faculty_name':
+            
+        
+        
+
+            
+
             if entities.get('faculty_name'):
                 logging.info("Using 'clarify_faculty_name' memory.")
                 intent = manager.action_context['intent'] # Restore original intent
@@ -909,47 +1173,66 @@ async def process_message(user_query, user_id):
                 manager.reset() # Unrelated query
         
 
-        # --- Step 1.6: Dialogue Management (THE FIX IS HERE) ---
+ # --- Step 1.6: Dialogue Management (THE BUG FIX) ---
         if manager.is_in_conversation():
-            logging.info(f"User is already in conversation for: {manager.current_intent}")
-            
-            # --- NEW LOGIC ---
-            # Is this a *follow-up* (unknown intent, but has entities) or just chatting?
-            is_follow_up = (intent == "unknown" and entities) or \
-                           (intent == "general_chat") or \
-                           (intent == manager.current_intent and not entities) # e.g. "list those companies"
-            
-            # --- FIX: Check if it's a *new* question with the *same* intent ---
-            is_new_question = (intent == manager.current_intent and entities)
-            
-            if not is_follow_up and not is_new_question:
-                # This is a NEW, DIFFERENT QUESTION.
-                logging.warning(f"New intent '{intent}' breaks old conversation. Resetting.")
-                manager.reset()
-            
-            elif is_new_question:
-                # This is a NEW question but the SAME intent (e.g. "who teaches cn" again)
-                logging.info(f"New query for same intent. Resetting and starting over.")
-                manager.reset()
+            logging.info(f"User is in conversation for: {manager.current_intent}")
+            logging.info(f"Current slots: {manager.filled_slots}")
+            logging.info(f"New query intent: {intent}, entities: {entities}")
 
+            # --- NEW FIX: Handle simple "general_chat" like "ok" or "thanks" ---
+            # This stops the bot from re-running the last command.
+            if intent == "general_chat":
+                logging.warning("User sent 'general_chat' while conversation was open. Resetting manager.")
+                manager.reset()
+                # The 'general_chat' intent will now be handled normally by the code below.
+            # --- END NEW FIX ---
+
+            # Define conditions for resetting
+            is_unrelated_intent = (
+                intent not in ["unknown", "general_chat"] and
+                not manager.is_in_family(intent) and
+                intent != manager.current_intent
+            )
+            is_confusing_unknown = (intent == "unknown" and not entities)
+
+            if is_unrelated_intent or is_confusing_unknown:
+                # This is a NEW, DIFFERENT QUESTION. Reset the conversation.
+                logging.warning(f"New unrelated intent '{intent}' or confusing query. Resetting dialogue manager.")
+                manager.reset()
+                
             else:
-                # User is continuing the conversation (e.g., "for ise a")
-                # We pass 'entities' which might be {'branch': 'ISE', 'section': 'A'}
+                # --- THIS IS THE NEW CONTEXT-AWARE LOGIC ---
+                # This is a follow-up. It's either:
+                # 1. An "unknown" intent with entities (e.g., "on tuesday")
+                # 2. A new intent in the same family (e.g., "what are her free slots")
+                # 3. A re-ask of the *same* intent (e.g., "what about for the week")
+
+                # If the new intent is valid (not 'unknown'/'general_chat') and is a family switch
+                if intent not in ["unknown", "general_chat"] and intent != manager.current_intent:
+                    logging.info(f"Switching intent family from {manager.current_intent} to {intent}")
+                    manager.current_intent = intent
+                    # Update required slots, etc., for the new intent
+                    form = manager.intent_forms.get(intent, {})
+                    manager.required_slots = list(form.get("required_slots", []))
+                    manager.questions = form.get("questions", {})
+
+                # Now, fill slots. This will add new entities (like 'day': 'all')
+                # or just use the existing ones if 'entities' is empty.
                 response_or_status = manager.fill_slots(entities)
                 
                 if response_or_status == "COMPLETED":
                     logging.info("Form is complete. Getting full context.")
                     intent, entities = manager.get_full_context()
-                    # --- We will reset (or not) at the *end* of the function ---
+                    # We will reset (or not) at the *end* of the function
                 
                 elif response_or_status:
-                    # Bot needs to ask the next question
+                    # Bot needs to ask the next question (this shouldn't happen, but good fallback)
                     logging.info("Form is incomplete. Asking next question.")
                     bot_response_dict['text'] = response_or_status
                     return bot_response_dict
                 
                 else:
-                    # This should not happen, but as a fallback:
+                    # Fallback
                     manager.reset()
         
         # --- Step 1.7: Role Override Logic (Restored) ---
@@ -968,7 +1251,13 @@ async def process_message(user_query, user_id):
              if any(keyword in user_query_lower.split() for keyword in controller_keywords):
                  is_explicit_role_query = True
         
-        if (intent == 'get_faculty_info' or intent == 'get_faculty_location') and role_keywords_in_query:
+        # --- MODIFIED: Apply override to all faculty intents ---
+        faculty_intents = [
+            'get_faculty_info', 'get_faculty_location', 'get_faculty_availability', 
+            'get_faculty_courses', 'get_faculty_schedule', 'get_faculty_location_on_day',
+            'get_faculty_campus_availability'
+        ]
+        if (intent in faculty_intents) and role_keywords_in_query:
             role_to_search = role_keywords_in_query[0]
             # If the AI provided a faculty_name, DELETE IT. We trust the role keyword.
             if entities.get('faculty_name'):
@@ -982,13 +1271,18 @@ async def process_message(user_query, user_id):
         # --- End Override Logic ---
         
         # --- Step 1.8: Faculty Spellcheck (Still valuable!) ---
-        faculty_intents = ['get_faculty_info', 'get_faculty_location', 'get_faculty_availability', 'get_faculty_courses']
+        # --- MODIFIED: Added new intents to this list ---
+        faculty_intents_requiring_spellcheck = [
+            'get_faculty_info', 'get_faculty_location', 'get_faculty_availability', 
+            'get_faculty_courses', 'get_faculty_schedule', 'get_faculty_location_on_day',
+            'get_faculty_campus_availability'
+        ]
         faculty_name_from_user = entities.get('faculty_name')
         faculty_name_confirmed = entities.get('faculty_name_confirmed', False)
         
         # Only run spellcheck if we are NOT in a conversation and NOT handling a pending action
-        if intent in faculty_intents and faculty_name_from_user and \
-           not faculty_name_confirmed and not manager.is_in_conversation() and not manager.pending_action:
+        if intent in faculty_intents_requiring_spellcheck and faculty_name_from_user and \
+           not faculty_name_confirmed and not manager.pending_action:
             
             logging.info(f"Performing faculty existence/spellcheck for: '{faculty_name_from_user}'")
             check_results = database.get_faculty_location(faculty_name_from_user)
@@ -1006,8 +1300,18 @@ async def process_message(user_query, user_id):
                 logging.info(f"Faculty check: Ambiguous results found ({len(check_results)} matches).")
                 # Save context for clarification
                 manager.pending_action = 'clarify_faculty_name'
-                manager.action_context = {'intent': intent}
-                bot_response_text = format_faculty_location(check_results)
+                manager.action_context = {'intent': intent} # Save the *original* intent
+                
+                # --- THIS IS THE FIX ---
+                # Generate a generic "who did you mean" response
+                # instead of wrongly using format_faculty_location
+                response_lines = [f"I found {len(check_results)} potential matches for '{faculty_name_from_user}':"]
+                for i, faculty in enumerate(check_results):
+                    response_lines.append(f"\n{i+1}. **{faculty.get('name', 'N/A')}**")
+                response_lines.append("\nWhich one did you mean?")
+                bot_response_text = "\n".join(response_lines)
+                # --- END FIX ---
+
                 bot_response_dict['text'] = bot_response_text
                 return bot_response_dict
                 
@@ -1094,7 +1398,42 @@ async def process_message(user_query, user_id):
                 bot_response_text = LOST_ITEM_INFO.get('id card')
             bot_response_dict['text'] = bot_response_text
             return bot_response_dict
+            
+        # --- NEW: Handle Canteen Intent ---
+        elif intent == "get_canteen_info":
+            bot_response_text = (
+                "I'm sorry, I don't have the daily updated food menu for the NIE canteen "
+                "in my database right now. However, both the main campus canteen and "
+                "the hostel messes provide a variety of nutritious and hygienic food options. "
+                "You can also find food outlets, bakeries, and coffee shops on campus."
+            )
+            bot_response_dict['text'] = bot_response_text
+            return bot_response_dict
+            
+        # --- NEW: Handle Break Info Intent ---
+        elif intent == "get_break_info":
+            bot_response_dict['text'] = BREAK_INFO
+            return bot_response_dict
+
+        # --- NEW: Handle Help/Escalation Intent ---
+        elif intent == "get_help_escalation":
+            manager.reset() # Reset any conversation
+            bot_response_dict['text'] = HELP_ESCALATION_INFO
+            return bot_response_dict
         
+        # --- NEW: Handle Faculty Class Schedule ---
+        elif intent == "get_faculty_schedule":
+            faculty_name = entities.get('faculty_name')
+            day = entities.get('day')
+            if not faculty_name or not day:
+                bot_response_dict['text'] = "I'm sorry, I missed who or which day. Please ask again."
+                return bot_response_dict
+            
+            db_results = database.get_faculty_class_schedule(faculty_name, day)
+            bot_response_text = format_faculty_class_schedule(db_results, faculty_name, day)
+            bot_response_dict['text'] = bot_response_text
+            
+        # --- MODIFIED: Handle Faculty Availability (Free Slots) ---
         elif intent == "get_faculty_availability":
             faculty_name = entities.get('faculty_name')
             day = entities.get('day') 
@@ -1103,10 +1442,81 @@ async def process_message(user_query, user_id):
                  bot_response_dict['text'] = "I'm sorry, I missed who or which day. Please ask again."
                  return bot_response_dict
                  
-            db_results = database.get_faculty_schedule(faculty_name, day)
-            bot_response_text = format_faculty_availability(db_results, entities, day, faculty_name)
+            # Note: This DB call gets *busy* slots for the calculation
+            db_results = database.get_faculty_busy_slots(faculty_name, day)
+            # We pass faculty_name from entities, as it might be a new follow-up
+            bot_response_text = format_faculty_availability(db_results, entities, day, entities.get('faculty_name'))
             bot_response_dict['text'] = bot_response_text
-            # We will let the manager reset at the end
+            # We will let the manager reset (or not) at the end
+            
+        # --- BUG 2 FIX: Handle Faculty Dynamic Location (User wants STATIC office) ---
+        elif intent == "get_faculty_location_on_day":
+            faculty_name = entities.get('faculty_name')
+            day = entities.get('day')
+            if not faculty_name or not day:
+                bot_response_dict['text'] = "I'm sorry, I missed who or which day. Please ask again."
+                return bot_response_dict
+            
+            # Step 1: Check if they are on campus at all
+            active_days_results = database.get_faculty_active_days(faculty_name)
+            is_on_campus = any(row['day_of_week'].lower() == day.lower() for row in active_days_results)
+            
+            if is_on_campus:
+                # Step 2: Get their STATIC location (as requested by user)
+                static_location_results = database.get_faculty_location(faculty_name)
+                
+                if static_location_results:
+                    # Use the formatter for static location
+                    bot_response_text = format_faculty_location(static_location_results)
+                    # Add a note
+                    bot_response_text += f"\n\nThey have classes on campus on {day.capitalize()}, so you can likely find them in or around their office."
+                else:
+                    # On campus, but no static office info
+                    bot_response_text = f"**{faculty_name}** is on campus on {day.capitalize()}, but I'm sorry, their static office location is not in my records."
+            else:
+                # Not on campus
+                bot_response_text = f"**{faculty_name}** has no classes scheduled in the North Campus on {day.capitalize()}. They might be available in the South Campus."
+
+            bot_response_dict['text'] = bot_response_text
+
+        # --- BUG 1 FIX: Handle Faculty Campus Availability (User wants follow-up) ---
+        elif intent == "get_faculty_campus_availability":
+            faculty_name = entities.get('faculty_name')
+            if not faculty_name:
+                bot_response_dict['text'] = "I'm sorry, I missed which faculty member. Please ask again."
+                return bot_response_dict
+                
+            db_results = database.get_faculty_active_days(faculty_name)
+            
+            # Check if user asked for a *specific* day
+            day = entities.get('day')
+            if day and day.lower() != 'all': # This is the fix
+                is_on_campus = any(row['day_of_week'].lower() == day.lower() for row in db_results)
+                
+                if is_on_campus:
+                    # --- THIS IS THE "YES" RESPONSE ---
+                    bot_response_text = f"**Yes**, **{faculty_name}** has classes scheduled on {day.capitalize()}."
+                    bot_response_text += "\n\nWould you like to know their free slots for that day?"
+                    
+                    # Set pending action to remember the context
+                    manager.pending_action = 'offer_faculty_details'
+                    manager.action_context = {'faculty_name': faculty_name, 'day': day}
+                else:
+                    # --- THIS IS THE "NO" RESPONSE (FOR THAT SPECIFIC DAY) ---
+                    bot_response_text = (
+                        f"**No**, **{faculty_name}** has no classes scheduled in the North Campus on **{day.capitalize()}**. "
+                        f"They are likely available in the South Campus."
+                    )
+                # We return here because we are either in a pending state or have answered specifically
+                bot_response_dict['text'] = bot_response_text
+                return bot_response_dict
+                
+            else:
+                # --- THIS IS THE "ALL DAYS" RESPONSE ---
+                # User asked for *all* days (e.g., "what days is sk on campus")
+                bot_response_text = format_faculty_campus_availability(db_results, faculty_name)
+                bot_response_dict['text'] = bot_response_text
+                # We let the manager reset (or not) at the end of the function
         
         elif intent == "get_placement_count_by_type":
             ctc_type = entities.get('ctc_type')
@@ -1144,6 +1554,7 @@ async def process_message(user_query, user_id):
             bot_response_dict['media_url'] = portal_data.get('media_url')
             return bot_response_dict
         
+        # --- MODIFIED: This is now ONLY for STATIC office location ---
         elif intent == "get_faculty_location":
             search_term = entities.get('faculty_name') or entities.get('department')
             if not search_term:
@@ -1183,13 +1594,16 @@ async def process_message(user_query, user_id):
              if not (day or branch or section or year or faculty_name or course_name or course_code):
                  bot_response_text = "I'm sorry, I missed what you wanted the timetable for."
              else:
+                 # --- MODIFIED: Pass all entities to the formatter ---
                  db_results = database.get_timetable(branch, section, year, day, faculty_name, course_name, course_code)
         
         # --- Other intents ---
         elif intent == "get_club_info":
              db_results = database.get_club_info(entities.get('club_name'))
         elif intent == "get_dress_code":
-             db_results = database.get_dress_code(entities.get('category'))
+     # ALWAYS fetch the entire dress code.
+     # The final_response AI is smart enough to find the answer.
+            db_results = database.get_dress_code(None)
         elif intent == "get_admissions_info":
              db_results = database.get_admissions_info()
         elif intent == "get_placements_info":
@@ -1226,7 +1640,7 @@ async def process_message(user_query, user_id):
              bot_response_text = format_timetable_response(db_results, entities) 
              
         elif intent == "get_faculty_location" and db_results:
-            logging.info("Formatting faculty LOCATION response.")
+            logging.info("Formatting faculty LOCATION (static office) response.")
             bot_response_text = format_faculty_location(db_results)
             
         elif intent == "get_course_instructors": # Handles db_results or not

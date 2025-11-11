@@ -144,10 +144,9 @@ def get_faculty_info(name, department, info_type):
         faculty_params.extend(list(set(role_keywords_to_search)))
         print(f"Searching faculty table EXCLUSIVELY for roles: {list(set(role_keywords_to_search))}")
     elif name:
-        # --- FIX: Use a normalized, exact-ish match ---
-        # The spell-check logic in app.py will pass the *correct* name here.
-        normalized_name = f"%{name.replace(' ', '').replace('.', '').lower()}%"
-        faculty_conditions.append("REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') LIKE %s")
+        # --- FIX: Use a normalized, STRICT match ---
+        normalized_name = name.replace(' ', '').replace('.', '').lower()
+        faculty_conditions.append("REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') = %s")
         faculty_params.append(normalized_name)
         # --- END FIX ---
         
@@ -169,12 +168,12 @@ def get_faculty_info(name, department, info_type):
         final_results.extend(faculty_results)
         if name:
             print("Searching anti_ragging_squad table by name as fallback/supplement...")
-            # --- FIX: Use normalized LIKE match ---
+            # --- FIX: Use normalized, STRICT match ---
             ragging_query = """
                 SELECT a.name, NULL as email, a.department, NULL as office_location, a.role, a.contact_phone, NULL as image_url, 'anti_ragging' as source_table
-                FROM anti_ragging_squad a WHERE REPLACE(REPLACE(LOWER(a.name), ' ', ''), '.', '') LIKE %s
+                FROM anti_ragging_squad a WHERE REPLACE(REPLACE(LOWER(a.name), ' ', ''), '.', '') = %s
             """
-            normalized_name_ragging = f"%{name.replace(' ', '').replace('.', '').lower()}%"
+            normalized_name_ragging = name.replace(' ', '').replace('.', '').lower()
             ragging_params = [normalized_name_ragging]
             # --- END FIX ---
             ragging_results = execute_query(ragging_query, ragging_params) or []
@@ -203,10 +202,10 @@ def get_faculty_info(name, department, info_type):
 # --- MODIFIED FUNCTION ---
 def get_faculty_location(name):
     """
-    Fetches faculty name and location using SOUNDEX on the last name to catch typos.
-    This is the "checker" function for app.py.
+    Fetches faculty name and STATIC office location.
+    This is the "checker" function for app.py and also serves the `get_faculty_location` intent.
     """
-    print(f"get_faculty_location (checker) called for name: '{name}'")
+    print(f"get_faculty_location (checker / static) called for name: '{name}'")
     
     # --- Step 1: Try a normalized, exact-ish match first ---
     # This finds "Dr. S Kuzhalvaimozhi" if user types "kuzhalvaimozhi"
@@ -230,14 +229,17 @@ def get_faculty_location(name):
     # --- Step 2: If no exact match, try SOUNDEX on the last name ---
     print("No exact match found. Trying SOUNDEX search...")
     
-    # SUBSTRING_INDEX(name, ' ', -1) gets the last word of the name (e.g., "Kuzhalvaimozhi")
-    # This correctly compares SOUNDEX('Kuzhalvaimozhi') to SOUNDEX('kuzalvaimozhi')
+    # --- THIS IS THE FIX ---
+    # We compare the SOUNDEX of the DB's last name
+    # to the SOUNDEX of the *user's* last word.
     query_soundex = """
         SELECT id, name, office_location
         FROM faculty
-        WHERE SOUNDEX(SUBSTRING_INDEX(name, ' ', -1)) = SOUNDEX(%s)
+        WHERE SOUNDEX(SUBSTRING_INDEX(name, ' ', -1)) = SOUNDEX(SUBSTRING_INDEX(%s, ' ', -1))
         LIMIT 5
     """
+    # --- END OF FIX ---
+    
     params_soundex = (name,)
     
     soundex_results = execute_query(query_soundex, params_soundex)
@@ -281,10 +283,10 @@ def get_timetable(branch, section, study_year, day, faculty_name, course_name, c
         query += " AND t.day_of_week LIKE %s"
         params.append(f"%{day}%")
         
-    # --- FIX: Use normalized LIKE match (app.py provides correct name) ---
+    # --- FIX: Use normalized, STRICT match ---
     if faculty_name:
-        normalized_name = f"%{faculty_name.replace(' ', '').replace('.', '').lower()}%"
-        query += " AND REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') LIKE %s"
+        normalized_name = faculty_name.replace(' ', '').replace('.', '').lower()
+        query += " AND REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') = %s"
         params.append(normalized_name)
     # --- END FIX ---
         
@@ -526,11 +528,13 @@ def get_placement_companies_by_ctc_data(operator, amount):
     return execute_query(query, params)
 
 
-def get_faculty_schedule(faculty_name, day):
+# --- MODIFIED: Renamed to be more specific ---
+def get_faculty_busy_slots(faculty_name, day):
     """
     Fetches all busy slots (start and end times) for a specific faculty on a specific day.
+    This is used by the `calculate_free_slots` helper.
     """
-    print(f"get_faculty_schedule called for: {faculty_name} on {day}")
+    print(f"get_faculty_busy_slots called for: {faculty_name} on {day}")
     
     query = """
         SELECT
@@ -540,12 +544,12 @@ def get_faculty_schedule(faculty_name, day):
         JOIN classes c ON t.class_id = c.class_id
         JOIN faculty f ON c.faculty_id = f.id
         WHERE 1=1
-        AND REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') LIKE %s
+        AND REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') = %s
         AND t.day_of_week LIKE %s
         ORDER BY t.start_time
     """
-    # --- FIX: Use normalized LIKE (app.py provides correct name) ---
-    normalized_name = f"%{faculty_name.replace(' ', '').replace('.', '').lower()}%"
+    # --- FIX: Use normalized, STRICT match ---
+    normalized_name = faculty_name.replace(' ', '').replace('.', '').lower()
     params = (normalized_name, f"%{day}%")
     # --- END FIX ---
     
@@ -564,12 +568,59 @@ def get_courses_for_faculty(faculty_name):
         FROM courses co
         JOIN classes c ON co.course_code = c.course_code
         JOIN faculty f ON c.faculty_id = f.id
-        WHERE REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') LIKE %s
+        WHERE REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') = %s
         ORDER BY co.course_name
     """
-    # --- FIX: Use normalized LIKE (app.py provides correct name) ---
-    normalized_name = f"%{faculty_name.replace(' ', '').replace('.', '').lower()}%"
+    # --- FIX: Use normalized, STRICT match ---
+    normalized_name = faculty_name.replace(' ', '').replace('.', '').lower()
     params = (normalized_name,)
     # --- END FIX ---
     
     return execute_query(query, params)
+
+# --- NEW: Function to get a faculty's class schedule ---
+def get_faculty_class_schedule(faculty_name, day):
+    """
+    Fetches the full class schedule (course, location, etc.) for a faculty member on a specific day.
+    """
+    print(f"get_faculty_class_schedule called for: {faculty_name} on {day}")
+    
+    query = """
+        SELECT
+            t.start_time, t.end_time, co.course_name, t.room_no, t.location,
+            c.branch, c.section
+        FROM timetable_slots t
+        JOIN classes c ON t.class_id = c.class_id
+        JOIN courses co ON c.course_code = co.course_code
+        JOIN faculty f ON c.faculty_id = f.id
+        WHERE REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') = %s
+        AND t.day_of_week LIKE %s
+        ORDER BY t.start_time
+    """
+    normalized_name = faculty_name.replace(' ', '').replace('.', '').lower()
+    params = (normalized_name, f"%{day}%")
+    
+    return execute_query(query, params)
+# --- END NEW ---
+
+# --- NEW: Function to get the days a faculty is on campus ---
+def get_faculty_active_days(faculty_name):
+    """
+    Fetches the distinct weekdays (Mon-Fri) a faculty has classes.
+    """
+    print(f"get_faculty_active_days called for: {faculty_name}")
+    
+    query = """
+        SELECT DISTINCT t.day_of_week
+        FROM timetable_slots t
+        JOIN classes c ON t.class_id = c.class_id
+        JOIN faculty f ON c.faculty_id = f.id
+        WHERE REPLACE(REPLACE(LOWER(f.name), ' ', ''), '.', '') = %s
+        AND t.day_of_week IN ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')
+        ORDER BY FIELD(t.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')
+    """
+    normalized_name = faculty_name.replace(' ', '').replace('.', '').lower()
+    params = (normalized_name,)
+    
+    return execute_query(query, params)
+# --- END NEW ---
