@@ -138,6 +138,7 @@ async def get_query_intent(user_query):
     - "get_transport_info": User is asking about college bus routes or transport.
     - "get_dress_code": User is asking about the college dress code.
     - "get_anti_ragging_info": User is asking about anti-ragging policies or contacts.
+    - "get_college_info": User is asking for general information about the college
     - "get_events_info": User is asking about college events or fests.
     - "get_notices": User is asking for recent notices or announcements.
     - "get_scholarship_info": User is asking about scholarships.
@@ -283,6 +284,11 @@ async def get_query_intent(user_query):
     
     Example for "where are the ise labs":
     {{"intent": "get_location", "entities": {{"lab_name": "ISE"}}}}
+    Example for "where is the physics lab":
+    {{"intent": "get_location", "entities": {{"lab_name": "Physics"}}}}
+
+    Example for "chemistry lab location":
+    {{"intent": "get_location", "entities": {{"lab_name": "Chemistry"}}}}
     
     Example for "where are the cs labs":
     {{"intent": "get_location", "entities": {{"lab_name": "CSE"}}}}
@@ -292,6 +298,18 @@ async def get_query_intent(user_query):
     
     Example for "cse lab location":
     {{"intent": "get_location", "entities": {{"lab_name": "CSE"}}}}
+
+    Example for "where is the physics lab":
+    {{"intent": "get_location", "entities": {{"lab_name": "Physics"}}}}
+
+    Example for "physics lab location":
+    {{"intent": "get_location", "entities": {{"lab_name": "Physics"}}}}
+
+    Example for "where can i find the chemistry lab":
+    {{"intent": "get_location", "entities": {{"lab_name": "Chemistry"}}}}
+
+    Example for "chemistry lab location":
+    {{"intent": "get_location", "entities": {{"lab_name": "Chemistry"}}}}
     
     Example for "where is the library":
     {{"intent": "get_location", "entities": {{"location_name": "library"}}}}
@@ -310,6 +328,15 @@ async def get_query_intent(user_query):
 
     Example for "where is the principal office":
     {{"intent": "get_location", "entities": {{"office_name": "principal"}}}}
+
+    Example for "where is the cse staff room":
+    {{"intent": "get_location", "entities": {{"office_name": "cse staff room"}}}}
+
+    Example for "cse staff room1":
+    {{"intent": "get_location", "entities": {{"office_name": "cse staff room"}}}}
+
+    Example for "ise staff room 2 location":
+    {{"intent": "get_location", "entities": {{"office_name": "ise staff room"}}}}
     
     Example for "where is the auditorium":
     {{"intent": "get_location", "entities": {{"office_name": "auditorium"}}}}
@@ -645,6 +672,27 @@ async def get_query_intent(user_query):
 
     Example for "is sk free on monday":
     {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "Dr S Kuzhalvaimozhi", "day": "Monday"}}}}
+
+    Example for "what does cnc teach":
+    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
+
+    Example for "when is hod free":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "HOD"}}}}
+    
+    Example for "what is the hod schedule":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "HOD"}}}}
+
+    Example for "when can i meet ise hod":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "HOD", "branch": "ISE"}}}}
+
+    Example for "where can i find cse hod":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "HOD", "branch": "CSE", "day": "today"}}}}
+
+    Example for "ise hod office":
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "HOD", "branch": "ISE"}}}}
+    # --- END OF NEW EXAMPLES ---
+
+    --- END INITIALS EXAMPLES ---
     
     Example for "what does sk teach":
     {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "Dr S Kuzhalvaimozhi"}}}}
@@ -657,6 +705,25 @@ async def get_query_intent(user_query):
     
     Example for "who teaches toc":
     {{"intent": "get_course_instructors", "entities": {{"course_name": "Theory of Computation"}}}}
+
+    Example for "what does cnc teach":
+    {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
+
+    Example for "when is hod free":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "HOD"}}}}
+    
+    Example for "what is the hod schedule":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "HOD"}}}}
+
+    Example for "when can i meet ise hod":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "HOD", "branch": "ISE"}}}}
+
+    Example for "where can i find cse hod":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "HOD", "branch": "CSE", "day": "today"}}}}
+
+    Example for "ise hod office":
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "HOD", "branch": "ISE"}}}}
+
 
 
     Example for "TOC prof?":
@@ -682,7 +749,28 @@ async def get_query_intent(user_query):
 
     Example for "what does cnc teach":
     {{"intent": "get_faculty_courses", "entities": {{"faculty_name": "CN Chinnaswamy"}}}}
+    Example for "when is hod free":
+    {{"intent": "get_faculty_availability", "entities": {{"faculty_name": "HOD"}}}}
+    
+    Example for "what is the hod schedule":
+    {{"intent": "get_faculty_schedule", "entities": {{"faculty_name": "HOD"}}}}
+    
+    Example for "where is the cse hod":
+    {{"intent": "get_faculty_location_on_day", "entities": {{"faculty_name": "HOD", "branch": "CSE", "day": "today"}}}}
+
+    Example for "ise hod office":
+    {{"intent": "get_faculty_location", "entities": {{"faculty_name": "HOD", "branch": "ISE"}}}}
     --- END INITIALS EXAMPLES ---
+    --- NEW: COLLEGE INFO EXAMPLES ---
+    Example for "tell me about the college":
+    {{"intent": "get_college_info", "entities": {{}}}}
+    
+    Example for "info about nie":
+    {{"intent": "get_college_info", "entities": {{}}}}
+
+    Example for "what is this college":
+    {{"intent": "get_college_info", "entities": {{}}}}
+    --- END COLLEGE INFO EXAMPLES ---
 
     Example for "thanks":
     {{"intent": "general_chat", "entities": {{}}}}

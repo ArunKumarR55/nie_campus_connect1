@@ -200,13 +200,56 @@ def get_faculty_info(name, department, info_type):
 
 
 # --- MODIFIED FUNCTION ---
-def get_faculty_location(name):
+def get_faculty_location(name, branch=None): # <-- MODIFIED
     """
     Fetches faculty name and STATIC office location.
     This is the "checker" function for app.py and also serves the `get_faculty_location` intent.
+    Can now also search by role (e.g., name='HOD') and branch.
     """
-    print(f"get_faculty_location (checker / static) called for name: '{name}'")
+    print(f"get_faculty_location (checker / static) called for name: '{name}', branch: '{branch}'") # <-- MODIFIED
     
+    # --- NEW: Step 0: Check for Role-Based Search ---
+    role_name = name.lower().strip()
+    role_keywords = []
+    
+    if role_name == 'hod' or 'head' in role_name:
+        role_keywords = ['%head%', '%hod%']
+    elif role_name == 'principal':
+        role_keywords = ['%principal%']
+    elif role_name == 'dean':
+        role_keywords = ['%dean%']
+    elif role_name == 'coe' or role_name == 'controller':
+        role_keywords = ['%controller%', '%coe%']
+
+    if role_keywords:
+        print(f"Role search detected for: {role_keywords}")
+        query_role = """
+            SELECT id, name, office_location
+            FROM faculty
+            WHERE 1=1
+        """
+        params_role = []
+        
+        # Build the (f.department LIKE %s OR f.department LIKE %s) block
+        role_clauses = ["department LIKE %s" for _ in role_keywords]
+        query_role += f" AND ( {' OR '.join(role_clauses)} )"
+        params_role.extend(role_keywords)
+
+        if branch:
+            # If branch is provided (e.g., "CSE"), filter by it
+            query_role += " AND department LIKE %s"
+            params_role.append(f"%{branch}%")
+            
+        query_role += " LIMIT 5" # Limit to 5 matches
+        
+        role_results = execute_query(query_role, params_role)
+        
+        if role_results:
+            print(f"Found {len(role_results)} matches by role.")
+            for r in role_results: r['match_type'] = 'exact' # Treat role match as exact
+            return role_results
+    # --- END NEW ---
+
     # --- Step 1: Try a normalized, exact-ish match first ---
     # This finds "Dr. S Kuzhalvaimozhi" if user types "kuzhalvaimozhi"
     normalized_name = f"%{name.replace(' ', '').replace('.', '').lower()}%"
@@ -623,4 +666,51 @@ def get_faculty_active_days(faculty_name):
     params = (normalized_name,)
     
     return execute_query(query, params)
+# --- END NEW ---
+# --- NEW: Function to get HOD name from departments table ---
+def get_hod_name_by_branch(branch_name):
+    """
+    Fetches the HOD's name for a specific branch from the 'departments' table.
+    """
+    print(f"get_hod_name_by_branch called for: {branch_name}")
+    
+    # --- THIS IS THE FIX ---
+    # Create a list of search terms based on the acronym
+    search_terms = [f"%{branch_name}%"] # e.g., '%ISE%'
+    
+    if branch_name == 'CSE':
+        search_terms.append('%Computer Science%')
+    elif branch_name == 'ISE':
+        search_terms.append('%Information Science%')
+    elif branch_name == 'ECE':
+        search_terms.append('%Electronics & Communication%')
+    elif branch_name == 'EEE':
+        search_terms.append('%Electrical & Electronics%')
+    elif branch_name == 'ME':
+        search_terms.append('%Mechanical%')
+    elif branch_name == 'IPE':
+        search_terms.append('%Industrial & Production%')
+    elif branch_name == 'AIML':
+        search_terms.append('%Artificial Intelligence%')
+    
+    # Build the WHERE clause dynamically
+    where_clauses = " OR ".join(["name LIKE %s" for _ in search_terms])
+    
+    query = f"""
+        SELECT hod
+        FROM departments
+        WHERE ({where_clauses})
+        LIMIT 1
+    """
+    
+    # The parameters are now the list of search terms
+    params = tuple(search_terms)
+    # --- END OF FIX ---
+    
+    results = execute_query(query, params)
+    
+    if results and results[0].get('hod'):
+        return results[0]['hod']
+    else:
+        return None
 # --- END NEW ---

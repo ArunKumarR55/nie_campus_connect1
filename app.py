@@ -80,6 +80,11 @@ HELP_ESCALATION_INFO = (
     "If you are on campus and need immediate help, you can visit the **Main Office** in the **Ramanujacharya Block**.\n\n"
     "If you have a specific technical or academic question, please try asking your **Proctor** or a **faculty member**."
 )
+COLLEGE_INFO = (
+    "**The National Institute of Engineering (NIE), Mysuru**, established in 1946, is one of India's oldest private autonomous engineering colleges. "
+    "It is renowned for its strong academic programs, experienced faculty, and excellent placement records. "
+    "The campus is located in the heart of Mysuru and is known for its vibrant student life and technical clubs."
+)
 
 # --- NEW: Faculty Availability Helpers ---
 
@@ -234,12 +239,24 @@ def _normalize_entities(entities):
             entities['branch'] = 'ISE'
     
     # Normalize lab name
+    # Normalize lab name
     if entities.get('lab_name'):
         lab_upper = entities['lab_name'].upper()
-        if lab_upper == 'CS':
+
+    # Common department mappings
+        if lab_upper in ['CS', 'CSE']:
             entities['lab_name'] = 'CSE'
-        if lab_upper == 'IS':
+        elif lab_upper in ['IS', 'ISE']:
             entities['lab_name'] = 'ISE'
+        elif lab_upper in ['PHYSICS', 'PHY']:
+            entities['lab_name'] = 'PHYSICS'
+        elif lab_upper in ['CHEMISTRY', 'CHEM']:
+            entities['lab_name'] = 'CHEMISTRY'
+        elif lab_upper in ['ELECTRONICS', 'EC', 'ECE']:
+            entities['lab_name'] = 'ECE'
+        else:
+            entities['lab_name'] = lab_upper
+
     
     # Normalize course name (if it's just 'cs' or 'is')
     if entities.get('course_name'):
@@ -848,6 +865,7 @@ def format_faculty_availability(db_results, entities, day, faculty_name_from_db)
 
 # --- NEW: Location Formatter ---
 def format_specific_location(entities):
+    print(f"--- DEBUG: Entities received: {entities} ---")
     """
     Handles all the custom logic for specific location questions.
     Returns a dictionary {'text': '...', 'media_url': '...'}
@@ -860,15 +878,14 @@ def format_specific_location(entities):
     response_text = None
     
     if room_number:
-        # Clean up the room number (e.g., "MB-1", "303")
+        # ... (rest of the room logic is fine) ...
         room_str = room_number.upper().replace(" ", "").replace("-", "")
         
         if room_str.startswith('MB'):
             response_text = f"Room {room_number.upper()} is located in the **Madhvacharya Bhavan**."
         
         elif room_str.isdigit() and len(room_str) == 3:
-            # --- THIS IS THE CORRECTED LOGIC ---
-            floor_char = room_str[0] # Get the first digit (e.g., '3' from '303')
+            floor_char = room_str[0]
             if floor_char == '1':
                 floor_text = "Ground Floor"
             elif floor_char == '2':
@@ -878,48 +895,71 @@ def format_specific_location(entities):
             elif floor_char == '4':
                 floor_text = "3rd Floor"
             else:
-                # This is the fix. Handle invalid floors.
                 response_text = f"I'm not sure about room {room_str}. Rooms in the Ramanujacharya Block are on the Ground, 1st, 2nd, and 3rd floors (room numbers starting with 1, 2, 3, or 4)."
-                # Return immediately
                 return {'text': response_text, 'media_url': None}
                 
             response_text = f"Room {room_str} is on the **{floor_text}** of the **Ramanujacharya Block**."
-            # --- END OF CORRECTED LOGIC ---
 
         elif room_str.isdigit() and len(room_str) < 3:
-            # Handle ambiguous queries like "room 3" or "room 20"
             response_text = f"I'm not sure which room you mean. Classrooms in the Ramanujacharya Block are 3 digits, like 101 (Ground Floor), 201 (1st Floor), or 301 (2nd Floor). Could you please specify the full room number?"
         
         else:
-            # Fallback for non-digit rooms not starting with MB
             response_text = f"I'm not sure where {room_number} is. Classrooms in the main block are 3 digits (e.g., 205) and rooms in Madhvacharya Bhavan start with 'MB' (e.g., MB-1)."
     
+    # --- THIS IS THE BLOCK YOU MUST FIX ---
     elif lab_name:
         lab_upper = lab_name.upper()
-        if 'ISE' in lab_upper or 'IS' in lab_upper:
-            response_text = "All ISE (IS) labs are located on the **3rd Floor** of the **Shankaracharya Block**."
-        elif 'CSE' in lab_upper or 'CS' in lab_upper:
-            response_text = "All CSE (CS) labs are located on the **2nd Floor** of the **Shankaracharya Block**."
-    
+        print(f"--- DEBUG: Lab name is {lab_upper} ---")  # <-- DEBUG
+
+    # Strict match for ISE / IS (avoid triggering for 'CHEMISTRY')
+        if lab_upper in ['ISE', 'IS']:
+            print("--- DEBUG: EXECUTING ISE BLOCK ---")
+            response_text = "All **ISE (IS)** Labs are located on the **3rd Floor** of the **Shankaracharya Block**."
+
+    # Strict match for CSE / CS (avoid triggering for 'PHYSICS')
+        elif lab_upper in ['CSE', 'CS']:
+            print("--- DEBUG: EXECUTING CSE BLOCK ---")
+            response_text = "All **CSE (CS)** Labs are located on the **2nd Floor** of the **Shankaracharya Block**."
+
+    # Physics Lab
+        elif 'PHYSICS' in lab_upper:
+            print("--- DEBUG: EXECUTING PHYSICS BLOCK ---")
+            response_text = "The **Physics Lab** is located on the **1st Floor** of the **Ramanujacharya Block**."
+
+    # Chemistry Lab
+        elif 'CHEMISTRY' in lab_upper:
+            print("--- DEBUG: EXECUTING CHEMISTRY BLOCK ---")
+            response_text = "The **Chemistry Lab** is located in the **Basement** of the **Ramanujacharya Block**."
+
+    # Default fallback (optional)
+        else:
+            print("--- DEBUG: EXECUTING DEFAULT BLOCK ---")
+            response_text = "Sorry, I couldn't find the lab you're asking for. Please check the name."
+    # --- END OF THE BLOCK TO FIX ---
+
     elif office_name:
+        # ... (rest of the office logic is fine) ...
         office = office_name.lower()
         
-        # --- THIS IS THE CORRECTED BLOCK ---
         if office == 'principal' or office == 'dean' or office == 'academic' or office == 'examination' or office == 'scholarship' or office == 'fees':
-            # Capitalize the office name
             office_display = office.replace("principal", "Principal's").capitalize()
             if office == 'academic': office_display = "Academic Cell"
             if office == 'examination': office_display = "Examination Section"
-            if office == 'dean': office_display = "Dean's Office" # Added this line
+            if office == 'dean': office_display = "Dean's Office"
                 
             response_text = f"The **{office_display}** is on the **Ground Floor** of the **Ramanujacharya Block**."
-        # --- END OF CORRECTED BLOCK ---
+        
+        elif 'staff room' in office or 'staffroom' in office:
+            if 'cse' in office:
+                response_text = "The **CSE Staff Rooms** are located on the **1st Floor** of the **Shankaracharya Block**."
+            elif 'ise' in office:
+                response_text = "The **ISE Staff Rooms** are located on the **1st Floor and 3rd Floor** of the **Shankaracharya Block**."
         
         elif office == 'placement' or office == 'admissions' or office == 'stationary' or office == 'auditorium':
             office_display = office.capitalize()
             if office == 'placement': office_display = "Placement Office"
             if office == 'admissions': office_display = "Admissions Section"
-            if office == 'stationary': office_display = "Stationary Shop" # Add this line
+            if office == 'stationary': office_display = "Stationary Shop"
                 
             response_text = f"The **{office_display}** is on the **Ground Floor** of the **Shankaracharya Block**."
         elif office == 'hod':
@@ -930,16 +970,12 @@ def format_specific_location(entities):
         if loc == 'library':
             response_text = "The Main Library is located in the **Madhvacharya Bhavan**."
     
-    # --- Check if we found a specific text answer ---
     if response_text:
         return {'text': response_text, 'media_url': None}
     
-    # --- Fallback: No specific logic matched, show the map ---
     logging.info(f"No specific location logic for '{entities}'. Showing map.")
     map_data = database.get_campus_map_data(location_name)
     return map_data
-
-# --- END NEW Location Formatter ---
 
 # --- NEW: Faculty Schedule/Location Formatters ---
 
@@ -1157,6 +1193,28 @@ async def process_message(user_query, user_id):
                 logging.info("Unrelated query. Resetting 'offer_faculty_details' state.")
                 manager.reset()
 
+        # --- NEW: Handler for clarifying HOD department ---
+        elif manager.pending_action == 'clarify_hod_department':
+            context = manager.action_context
+            branch_from_user = user_query.strip().upper()
+            
+            # Check for common branch synonyms
+            if branch_from_user == 'CS': branch_from_user = 'CSE'
+            if branch_from_user == 'IS': branch_from_user = 'ISE'
+
+            logging.info(f"Using 'clarify_hod_department' memory. User replied with branch: {branch_from_user}")
+            
+            # Restore the original context
+            intent = context['intent']
+            entities = context['entities']
+            
+            # Add the new branch info and re-run the spellcheck
+            entities['branch'] = branch_from_user
+            entities['faculty_name_confirmed'] = False # Force a re-check
+            manager.reset()
+            # The 'process_message' function will now run from the top
+            # with the original intent and the new branch entity.
+
         elif manager.pending_action == 'clarify_faculty_name':
             
         
@@ -1235,56 +1293,50 @@ async def process_message(user_query, user_id):
                     # Fallback
                     manager.reset()
         
-        # --- Step 1.7: Role Override Logic (Restored) ---
-        user_query_lower = user_query.lower()
-        role_keywords_in_query = []
-        is_explicit_role_query = False 
-        if 'principal' in user_query_lower:
-            role_keywords_in_query.append('principal')
-            if "principal" in user_query_lower.split(): is_explicit_role_query = True
-        if 'dean' in user_query_lower:
-             role_keywords_in_query.append('dean')
-             if "dean" in user_query_lower.split(): is_explicit_role_query = True
-        controller_keywords = ['controller', 'coe']
-        if any(keyword in user_query_lower for keyword in controller_keywords):
-             role_keywords_in_query.append('controller')
-             if any(keyword in user_query_lower.split() for keyword in controller_keywords):
-                 is_explicit_role_query = True
+ 
         
-        # --- MODIFIED: Apply override to all faculty intents ---
-        faculty_intents = [
-            'get_faculty_info', 'get_faculty_location', 'get_faculty_availability', 
-            'get_faculty_courses', 'get_faculty_schedule', 'get_faculty_location_on_day',
-            'get_faculty_campus_availability'
-        ]
-        if (intent in faculty_intents) and role_keywords_in_query:
-            role_to_search = role_keywords_in_query[0]
-            # If the AI provided a faculty_name, DELETE IT. We trust the role keyword.
-            if entities.get('faculty_name'):
-                logging.warning(f"Overriding Gemini's faculty_name '{entities.get('faculty_name')}' due to role keyword '{role_to_search}' in query.")
-                entities.pop('faculty_name', None) 
-
-            # Now, set the department to search for
-            entities['department'] = role_to_search 
-            entities.pop('info_type', None) 
-            logging.info(f"Role keyword detected. Updated Entities for DB search: {entities}")
-        # --- End Override Logic ---
-        
-        # --- Step 1.8: Faculty Spellcheck (Still valuable!) ---
-        # --- MODIFIED: Added new intents to this list ---
-        faculty_intents_requiring_spellcheck = [
+        # --- Step 1.8: Faculty HOD Resolution & Spellcheck ---
+        faculty_intents_requiring_check = [
             'get_faculty_info', 'get_faculty_location', 'get_faculty_availability', 
             'get_faculty_courses', 'get_faculty_schedule', 'get_faculty_location_on_day',
             'get_faculty_campus_availability'
         ]
         faculty_name_from_user = entities.get('faculty_name')
         faculty_name_confirmed = entities.get('faculty_name_confirmed', False)
-        
-        # Only run spellcheck if we are NOT in a conversation and NOT handling a pending action
-        if intent in faculty_intents_requiring_spellcheck and faculty_name_from_user and \
+
+        if intent in faculty_intents_requiring_check and faculty_name_from_user and \
            not faculty_name_confirmed and not manager.pending_action:
             
-            logging.info(f"Performing faculty existence/spellcheck for: '{faculty_name_from_user}'")
+            logging.info(f"Performing faculty check for: '{faculty_name_from_user}'")
+            
+            # --- NEW HOD LOGIC ---
+            if faculty_name_from_user.lower().strip() == 'hod':
+                branch = entities.get('branch')
+                
+                if branch:
+                    # User said "CSE HOD", find the name
+                    logging.info(f"HOD detected with branch: {branch}. Looking up name.")
+                    hod_name = database.get_hod_name_by_branch(branch)
+                    
+                    if hod_name:
+                        logging.info(f"Found HOD name: {hod_name}. Proceeding.")
+                        entities['faculty_name'] = hod_name # SWAP "HOD" for the real name
+                        faculty_name_from_user = hod_name # Update for spellcheck
+                    else:
+                        logging.warning(f"Could not find HOD for branch: {branch}")
+                        bot_response_dict['text'] = f"I'm sorry, I couldn't find an HOD for the {branch} department in my records."
+                        return bot_response_dict
+                else:
+                    # User just said "HOD", ask for the branch
+                    logging.info("Ambiguous 'HOD' query. Asking for department.")
+                    manager.pending_action = 'clarify_hod_department'
+                    manager.action_context = {'intent': intent, 'entities': entities}
+                    bot_response_dict['text'] = "Sure, which department's HOD are you asking about? (e.g., CSE, ISE, ECE)"
+                    return bot_response_dict
+            # --- END HOD LOGIC ---
+
+            # --- REGULAR SPELLCHECK (Runs after HOD is resolved) ---
+            logging.info(f"Performing faculty spellcheck for: '{faculty_name_from_user}'")
             check_results = database.get_faculty_location(faculty_name_from_user)
             
             if not check_results:
@@ -1298,26 +1350,20 @@ async def process_message(user_query, user_id):
 
             if len(check_results) > 1:
                 logging.info(f"Faculty check: Ambiguous results found ({len(check_results)} matches).")
-                # Save context for clarification
                 manager.pending_action = 'clarify_faculty_name'
-                manager.action_context = {'intent': intent} # Save the *original* intent
+                manager.action_context = {'intent': intent, 'entities': entities} # Save original entities
                 
-                # --- THIS IS THE FIX ---
-                # Generate a generic "who did you mean" response
-                # instead of wrongly using format_faculty_location
                 response_lines = [f"I found {len(check_results)} potential matches for '{faculty_name_from_user}':"]
                 for i, faculty in enumerate(check_results):
                     response_lines.append(f"\n{i+1}. **{faculty.get('name', 'N/A')}**")
                 response_lines.append("\nWhich one did you mean?")
                 bot_response_text = "\n".join(response_lines)
-                # --- END FIX ---
 
                 bot_response_dict['text'] = bot_response_text
                 return bot_response_dict
                 
             if match_type == 'fuzzy':
                 logging.info(f"Faculty check: Prompting for confirmation. User='{faculty_name_from_user}', DB='{suggested_name}'")
-                # Save context for confirmation
                 manager.pending_action = 'confirm_faculty_name'
                 manager.action_context = {
                     'intent': intent,
@@ -1331,7 +1377,7 @@ async def process_message(user_query, user_id):
             entities['faculty_name'] = suggested_name
             entities['faculty_name_confirmed'] = True
             
-        # --- End Faculty Spellcheck ---
+        # --- End Faculty HOD Resolution & Spellcheck ---
 
 
         # --- Step 2: Check if a *new* conversation needs to be started ---
@@ -1419,6 +1465,11 @@ async def process_message(user_query, user_id):
         elif intent == "get_help_escalation":
             manager.reset() # Reset any conversation
             bot_response_dict['text'] = HELP_ESCALATION_INFO
+            return bot_response_dict
+        
+        elif intent == "get_college_info":
+            manager.reset() # Reset any conversation
+            bot_response_dict['text'] = COLLEGE_INFO
             return bot_response_dict
         
         # --- NEW: Handle Faculty Class Schedule ---
