@@ -128,6 +128,21 @@ CREATE TABLE transport (
     contact_phone VARCHAR(20)
 );
 
+use campus_bot4;
+CREATE TABLE scholarship_details(
+	name varchar(50), 
+    location varchar(50),
+    mail_id varchar(50)
+);
+
+
+INSERT INTO scholarship_details (name, location, mail_id)
+VALUES (
+    'Scholarship Section',
+    'Lab building, admissions section',
+    'scholarshipnorthcampus@nie.ac.in'
+);
+
 -- 4. INSERT STATIC DATA
 INSERT INTO dress_code (category, type, items) VALUES
 ('Boys', 'Allowed', 'Formal Pant, Jeans Pant, Shirt, T-Shirt, Kurtha'),
@@ -150,7 +165,7 @@ INSERT INTO clubs (name, description, contact_person, contact_phone) VALUES
 ('VLSI Club', 'A student community dedicated to acquire and develop skills in Very Large Scale Integration (VLSI) technology.', 'Club Coordinator', '9876500012');
 
 INSERT INTO anti_ragging_squad (name, role, department, contact_phone) VALUES
-('Dr. N V Archana', 'Chairperson', 'Principal', '9900112233'),
+('Dr. N V Archana', 'Chairperson', 'Anti ragging squad', '9900112233'),
 ('Sri. C N Nagesh Kumar', 'Member', 'Police Inspector, Lakshmipuram', '9900112234'),
 ('Dr. K M Subbaiah', 'Member', 'Professor, Industrial & Production Engg.', '9900112235');
 
@@ -269,7 +284,7 @@ INSERT INTO faculty (id, name, email, department, office_location) VALUES
 (78, 'Dr. U Anil', 'unnamanil@nie.ac.in', 'Civil Engineering', NULL),
 (79, 'Dr. K Raghuveer', 'ragh@nie.ac.in', 'Information Science & Engineering', 'Staff Room 1 - 1st Floor Lab Building'),
 (80, 'Ms. Padma MT', 'padmamt@nie.ac.in', 'Information Science & Engineering', 'Staff Room 2 - 3rd Floor Lab Building'),
-(81, 'Dr. S Kuzhalvaimozhi', 'kuzhali_mozhi@nie.ac.in', 'Information Science & Engineering', NULL),
+(81, 'Dr. S Kuzhalvaimozhi', 'kuzhali_mozhi@nie.ac.in', 'Professor and Controller Of Examination', NULL),
 (82, 'Ms. Prathibha B S', 'prathibha@nie.ac.in', 'Information Science & Engineering', 'Staff Room 1 - 1st Floor Lab Building'),
 (83, 'Mr. Suhas B R', 'suhasbharadwajr@nie.ac.in', 'Information Science & Engineering', NULL),
 (84, 'Dr. P Devaki', 'devaki@nie.ac.in', 'Information Science & Engineering', 'Staff Room 1 - 1st Floor Lab Building'),
@@ -1506,11 +1521,165 @@ INSERT INTO timetable_slots (class_id, day_of_week, start_time, end_time, room_n
 (499, 'Thursday', '12:30:00', '13:30:00', '309', 'Ramanujacharya Bhavan 2nd Floor'), -- ML2
 (498, 'Thursday', '14:30:00', '16:30:00', NULL, 'NLP tutorial E2');
 -- Note: Major Project (504) is not in the grid
+INSERT INTO faculty (id, name, email, department, office_location) VALUES
+(119, 'Dr.Rohini Nagapadma', 'principal@nie.ac.in', 'principal','Ramanujacharya Bhavan 1st Floor' );
+
+INSERT INTO faculty (id, name, email, department, office_location) VALUES
+(120, 'C Vidya Raj', 'deanaa@nie.ac.in', 'Dean & Professor','Ramanujacharya Bhavan 1st Floor' );
+
+INSERT INTO dress_code (category, type, items) VALUES
+('Everyone','Compulsary','ID CARD');
+ 
+use campus_bot4;
+Select * from faculty where id =119;
+ALTER TABLE faculty
+ADD COLUMN image_url TEXT;
+UPDATE faculty
+SET office_location = 'Principal office-Ramanujacharya Bhavan 1st Floor'
+WHERE id = 119;
+
+
 
 -- 9. DATA CORRECTION QUERIES
 -- (No longer needed as data is inserted correctly)
+use campus_bot4;
+
+-- Table 1: Stores the overall summary statistics
+CREATE TABLE placement_summary (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    highest_ctc DECIMAL(5, 2), -- e.g., 47.00
+    average_ctc DECIMAL(5, 2), -- e.g., 10.92
+    median_ctc DECIMAL(5, 2),  -- e.g., 10.00
+    lowest_ctc DECIMAL(5, 2),   -- e.g., 3.25
+    total_selects INT,
+    total_companies INT
+);
+
+-- Table 2: Stores data for each company
+CREATE TABLE placement_companies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_name VARCHAR(255) NOT NULL,
+    ctc DECIMAL(5, 2), -- The offered CTC in LPA
+    num_selects INT,
+    ctc_type VARCHAR(100) -- e.g., "Dream", "Open Dream", "Mass"
+);
+
+-- --- DATA INSERTION ---
+
+-- Insert the summary data (Calculated from the PDF)
+INSERT INTO placement_summary 
+(highest_ctc, average_ctc, median_ctc, lowest_ctc, total_selects, total_companies) 
+VALUES 
+(47.00, 10.92, 10.00, 3.25, 272, 110);
+
+-- Insert the COMPLETE company data (All 110 companies)
+-- Data has been parsed and cleaned from the PDF.
+-- num_selects = (Offers - Not Converted)
+INSERT INTO placement_companies (company_name, ctc, num_selects, ctc_type) VALUES
+('Fidelity Investments', 12.00, 4, 'Dream'), -- (5 Offers - 1 Not Converted)
+('VISA', 31.00, 1, 'Open Dream'), -- (2 Offers - 1 Not Converted)
+('Infineon Technologies', 10.00, 0, 'Dream'),
+('Akamai Technologies', 18.00, 3, 'Dream'),
+('JPMC (CFG)', 17.00, 6, 'Dream'),
+('Halodoc', 12.40, 11, 'Dream'),
+('Turing', 7.00, 0, 'Mass'),
+('LG Soft India', 7.50, 3, 'Dream'),
+('ZScaler', 24.00, 1, 'Open Dream'),
+('A.P. Moller Maersk', 10.83, 9, 'Dream'),
+('Epicor', 9.25, 2, 'Dream'),
+('OpenMynz', 9.00, 3, 'Dream'),
+('TVS Motors', 10.00, 4, 'Core'),
+('Afford Medical Technologies', 5.50, 0, 'Mass'),
+('Lowe\'s', 18.00, 11, 'Dream'),
+('Tejas Networks', 10.00, 4, 'Dream'),
+('Schneider Electric', 12.00, 13, 'Dream'),
+('Juspay', 27.00, 1, 'Open Dream'),
+('TE Connectivity', 9.10, 3, 'Dream'),
+('OIT Dharmayana', 7.50, 4, 'Startup'),
+('Ingersoll Rand', 7.50, 1, 'Core'),
+('Accenture', 4.20, 0, 'Mass'),
+('Alstom', 6.80, 30, 'Core'),
+('Infosys', 9.50, 2, 'Dream'),
+('Lam Research', 13.40, 2, 'Dream'),
+('Pure Storage', 47.00, 1, 'Open Dream'),
+('MiQ Digital', 13.00, 3, 'Dream'),
+('MulticoreWare', 10.20, 0, 'Dream'),
+('Spense', 7.00, 3, 'Startup'),
+('Western Digital', 14.50, 4, 'Dream'),
+('Lam Research - II', 11.40, 2, 'Dream'),
+('LTIMindtree', 6.00, 0, 'Mass'),
+('Capillary Technologies', 6.50, 1, 'Core'),
+('CynLr', 18.00, 0, 'Dream'),
+('Hewlett Packard Enterprise (HPE)', 17.50, 4, 'Dream'),
+('Amadeus Labs', 12.60, 7, 'Dream'),
+('Aptus data labs', 7.50, 0, 'Core'),
+('TheMathCompany', 5.50, 6, 'Core'),
+('IBM', 4.50, 0, 'Mass'),
+('Nokia', 8.20, 5, 'Core'),
+('Thermo Fisher Scientific', 12.50, 0, 'Dream'),
+('Incture', 8.00, 5, 'Core'),
+('Cognizant', 6.75, 0, 'Mass'),
+('SAP Labs', 23.50, 6, 'Open Dream'),
+('Accolite', 8.00, 0, 'Dream'),
+('Aurigo', 8.00, 2, 'Dream'),
+('Boeing', 9.00, 0, 'Dream'),
+('National Instruments', 12.00, 4, 'Dream'),
+('Texas Instruments', 27.00, 9, 'Open Dream'),
+('Samsung', 21.00, 5, 'Open Dream'),
+('CoreEL', 6.00, 1, 'Core'),
+('Bosch Limited', 7.00, 2, 'Core'),
+('Daimler Trucks', 10.00, 0, 'Dream'),
+('Havells', 8.00, 3, 'Dream'),
+('Dish Network Technologies', 8.60, 3, 'Dream'),
+('Transunion', 8.00, 4, 'Dream'),
+('Deltax', 7.00, 0, 'Core'),
+('Infosys-II', 3.60, 19, 'Mass'),
+('Aptiv', 8.50, 6, 'Dream'),
+('Cohesity', 13.30, 0, 'Dream'),
+('HPE-II', 8.00, 1, 'Dream'),
+('Big Basket', 9.50, 5, 'Dream'),
+('London Stock Exchange', 11.50, 1, 'Dream'),
+('Oracle', 10.00, 7, 'Dream'), -- (9 Offers - 2 Not Converted)
+('SQUADCAST', 20.00, 0, 'Open Dream'),
+('Roboyo', 4.50, 1, 'Core'),
+('CommScope', 13.00, 0, 'Dream'),
+('Philips', 14.50, 0, 'Dream'),
+('L7 Informatics', 6.50, 0, 'Core'),
+('Applied Materials', 13.90, 4, 'Dream'),
+('Kare ai Inc', 12.00, 0, 'Startup'),
+('Vicharak', 6.00, 0, 'Startup'),
+('Tech Mahindra', 3.25, 0, 'Mass'),
+('Thoughtworks', 11.10, 0, 'Dream'),
+('EPAM', 8.00, 0, 'Dream'),
+('Columbia Sportswear', 8.26, 0, 'Dream'),
+('Hashedin', 8.10, 3, 'Dream'), -- (4 Offers - 1 Not Converted)
+('TCS Ninja', 3.60, 10, 'Mass'), -- (10 * 3.6 = 36)
+('TCS Digital', 7.00, 3, 'Mass'), -- (3 * 7 = 21)
+('Anora Labs', 6.00, 3, 'Core'), -- (3 * 6 = 18)
+('Amagi Media Labs', 18.00, 1, 'Dream'), -- (1 * 18 = 18)
+('OneTrust', 9.00, 0, 'Dream'),
+('TCE', 4.50, 0, 'Mass'),
+('Resollect Technologies', NULL, 0, 'Startup'),
+('Thales Group', 9.00, 0, 'Dream'),
+('Bosch Global Software Technologies', NULL, 0, 'Dream'),
+('JSW Group', 8.00, 0, 'Core'),
+('DevRev', 12.00, 0, 'Dream'),
+('Acclime India', 6.00, 0, 'Mass'),
+('Azentio', 10.00, 1, 'Dream'),
+('Webknot Technologies', 7.00, 2, 'Startup'),
+('SofTronicLabs', NULL, 0, 'Startup'),
+('Evobi Automation', NULL, 0, 'Core'),
+('LeadSquared', 10.00, 0, 'Dream'),
+('Unilog', NULL, 10, NULL),
+('Akamai Technologies IT Support', 10.00, 0, 'Dream'),
+('Think 41', 8.00, 0, 'Startup'),
+('Cariad India', 8.00, 0, 'Dream'),
+('Enaviya', 3.00, 0, 'Mass'),
+('Skit.ai', NULL, 0, 'Startup'),
+('Ultimate Kronos Group', 13.50, 0, 'Dream');
+
 
 -- 10. VERIFY DATA (Optional)
 SELECT id, name, department, office_location FROM faculty;
-SELECT * FROM courses;
+SELECT * FROM scholarship_details;
 SELECT study_year, branch, section, COUNT(*) FROM classes GROUP BY study_year, branch, section ORDER BY study_year, branch, section;
